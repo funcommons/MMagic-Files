@@ -1,0 +1,71 @@
+// _ep-overrides.scss
+// Map --app-* tokens to Element Plus --el-* tokens (including color variants)
+// color-mix() provides runtime light/dark variants based on the active primary.
+
+:root {
+  --el-color-primary: var(--app-primary);
+  --el-color-primary-light-3: color-mix(in srgb, var(--app-primary) 70%, white);
+  --el-color-primary-light-5: color-mix(in srgb, var(--app-primary) 50%, white);
+  --el-color-primary-light-7: color-mix(in srgb, var(--app-primary) 30%, white);
+  --el-color-primary-light-8: color-mix(in srgb, var(--app-primary) 20%, white);
+  --el-color-primary-light-9: color-mix(in srgb, var(--app-primary) 10%, white);
+  --el-color-primary-dark-2: color-mix(in srgb, var(--app-primary) 80%, black);
+
+  --el-color-success: #67c23a;
+  --el-color-success-light-3: color-mix(in srgb, #67c23a 70%, white);
+  --el-color-success-light-5: color-mix(in srgb, #67c23a 50%, white);
+  --el-color-success-light-7: color-mix(in srgb, #67c23a 30%, white);
+  --el-color-success-light-8: color-mix(in srgb, #67c23a 20%, white);
+  --el-color-success-light-9: color-mix(in srgb, #67c23a 10%, white);
+  --el-color-success-dark-2: color-mix(in srgb, #67c23a 80%, black);
+
+  --el-color-warning: #e6a23c;
+  --el-color-warning-light-3: color-mix(in srgb, #e6a23c 70%, white);
+  --el-color-warning-light-5: color-mix(in srgb, #e6a23c 50%, white);
+  --el-color-warning-light-7: color-mix(in srgb, #e6a23c 30%, white);
+  --el-color-warning-light-8: color-mix(in srgb, #e6a23c 20%, white);
+  --el-color-warning-light-9: color-mix(in srgb, #e6a23c 10%, white);
+  --el-color-warning-dark-2: color-mix(in srgb, #e6a23c 80%, black);
+
+  --el-color-danger: #f56c6c;
+  --el-color-danger-light-3: color-mix(in srgb, #f56c6c 70%, white);
+  --el-color-danger-light-5: color-mix(in srgb, #f56c6c 50%, white);
+  --el-color-danger-light-7: color-mix(in srgb, #f56c6c 30%, white);
+  --el-color-danger-light-8: color-mix(in srgb, #f56c6c 20%, white);
+  --el-color-danger-light-9: color-mix(in srgb, #f56c6c 10%, white);
+  --el-color-danger-dark-2: color-mix(in srgb, #f56c6c 80%, black);
+
+  --el-color-info: var(--app-text-tertiary);
+  --el-color-info-light-3: color-mix(in srgb, var(--app-text-tertiary) 70%, white);
+  --el-color-info-light-5: color-mix(in srgb, var(--app-text-tertiary) 50%, white);
+  --el-color-info-light-7: color-mix(in srgb, var(--app-text-tertiary) 30%, white);
+  --el-color-info-light-8: color-mix(in srgb, var(--app-text-tertiary) 20%, white);
+  --el-color-info-light-9: color-mix(in srgb, var(--app-text-tertiary) 10%, white);
+  --el-color-info-dark-2: color-mix(in srgb, var(--app-text-tertiary) 80%, black);
+}
+
+// Force Element Plus popper/dropdown/dialog to inherit theme bg/text
+// 注: 项目不主动设 html[data-theme], --app-bg-* token 在 :root 没默认, 可能 undefined,
+// 这里给每个 var 加 hardcoded fallback (light theme 值). dark 主题在打开时通过
+// [data-theme='dark'] 重新覆盖 — 这条全局规则优先级仍生效 (specificity 0,1,0,
+// [data-theme] 是 0,1,1), 但 !important 让 data-theme 赢, 没问题.
+.el-popper,
+.el-popper.is-light,
+.el-select-dropdown,
+.el-dropdown-menu,
+.el-autocomplete-suggestion,
+.el-tooltip__popper,
+.el-message,
+.el-message-box,
+.el-notification,
+.el-dialog,
+.el-drawer {
+  background-color: var(--app-bg-elevated, #ffffff) !important;
+  color: var(--app-text, #1f1f1f) !important;
+  border-color: var(--app-border-light, #dcdfe6) !important;
+}
+
+.el-popper .el-popper__arrow::before {
+  background: var(--app-bg-elevated, #ffffff) !important;
+  border-color: var(--app-border-light, #dcdfe6) !important;
+}

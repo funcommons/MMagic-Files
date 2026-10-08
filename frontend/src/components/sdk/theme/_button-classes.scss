@@ -1,0 +1,176 @@
+// 原生 <button> 的 SDK 全局外观类。
+// 定位: 与 FcButton (el-button 薄封装) 并行 — FcButton 用于 loading/EP 集成场景,
+// 本文件服务原生 button 逃生通道 (ESLint prefer-fc-button 规则放行 fc-button* class).
+//
+// 用法: <button class="fc-button fc-button-primary fc-button-sm">保存</button>
+//   基础 fc-button + 变体 (必填) + 尺寸 (默认 md 可省) + 修饰符 (icon/circle/block)
+//
+// 关键: el-button 渲染出来也是原生 <button>, 且 FcButton 给它挂 fc-button class,
+// 所以每条规则都必须 :not(.el-button) 排除 EP 实例, 否则 base 的 height/padding
+// 会以 (0,1,1) 特异性压掉 EP 的 size 变体 (2026-07 踩坑记录).
+
+button.fc-button:not(.el-button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: auto;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--app-radius-md, 8px);
+  background: transparent;
+  color: var(--app-text, #333);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease,
+    box-shadow 0.15s ease, transform 0.1s ease;
+
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  // 内嵌 svg 图标跟字号走 (xs=12px, sm=12px, md=13px, lg=14px)
+  svg {
+    width: 1em;
+    height: 1em;
+    flex-shrink: 0;
+  }
+}
+
+/* ====== 变体 ====== */
+
+// 主要: primary 底 + 白字
+button.fc-button-primary:not(.el-button) {
+  background: var(--app-primary, #409eff);
+  border-color: var(--app-primary, #409eff);
+  color: var(--app-on-primary, #fff);
+
+  &:hover:not(:disabled) {
+    filter: brightness(0.95);
+    box-shadow: var(--app-shadow-sm, 0 2px 8px rgba(0, 0, 0, 0.08));
+  }
+}
+
+// 次要 (填充): muted 灰底
+button.fc-button-secondary:not(.el-button) {
+  background: var(--app-bg-muted, #f5f5f7);
+  color: var(--app-text, #333);
+
+  &:hover:not(:disabled) {
+    background: var(--app-section-border-color, #e5e5e5);
+  }
+}
+
+// 次要 (描边): 透明底 + border
+button.fc-button-outline:not(.el-button) {
+  border-color: var(--app-separator, var(--el-border-color, #dcdfe6));
+  color: var(--app-text, #333);
+
+  &:hover:not(:disabled) {
+    border-color: var(--app-primary, #409eff);
+    color: var(--app-primary, #409eff);
+  }
+}
+
+// 危险: danger 底 + 白字
+button.fc-button-danger:not(.el-button) {
+  background: var(--app-color-danger, #ff3b30);
+  border-color: var(--app-color-danger, #ff3b30);
+  color: #fff;
+
+  &:hover:not(:disabled) {
+    filter: brightness(0.95);
+    box-shadow: var(--app-shadow-sm, 0 2px 8px rgba(0, 0, 0, 0.08));
+  }
+}
+
+// 文字按钮: 无底无边框, primary 字色 (表格行操作)
+button.fc-button-text:not(.el-button) {
+  padding: 0 6px;
+  color: var(--app-primary, #409eff);
+
+  &:hover:not(:disabled) {
+    filter: brightness(0.85);
+  }
+}
+
+// 危险文字按钮 (表格行删除)
+button.fc-button-text-danger:not(.el-button) {
+  padding: 0 6px;
+  color: var(--app-color-danger, #ff3b30);
+
+  &:hover:not(:disabled) {
+    filter: brightness(0.85);
+  }
+}
+
+// 虚线触发: dashed border + 透明底 (新建卡片/添加触发)
+button.fc-button-dashed:not(.el-button) {
+  border-style: dashed;
+  border-color: var(--app-separator, var(--el-border-color, #dcdfe6));
+  color: var(--app-text-tertiary, #999);
+
+  &:hover:not(:disabled) {
+    border-color: var(--app-primary, #409eff);
+    color: var(--app-primary, #409eff);
+  }
+}
+
+/* ====== 尺寸 (md 即基础样式, 可不写) ====== */
+
+button.fc-button-xs:not(.el-button) {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+button.fc-button-sm:not(.el-button) {
+  height: 28px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+button.fc-button-md:not(.el-button) {
+  height: 32px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+button.fc-button-lg:not(.el-button) {
+  height: 40px;
+  padding: 0 20px;
+  font-size: 14px;
+}
+
+/* ====== 修饰符 ====== */
+
+// 正方形图标按钮 (宽高=尺寸高度)
+button.fc-button-icon:not(.el-button) {
+  padding: 0;
+  width: 32px;
+
+  &.fc-button-xs { width: 24px; }
+  &.fc-button-sm { width: 28px; }
+  &.fc-button-lg { width: 40px; }
+}
+
+// 全圆角
+button.fc-button-circle:not(.el-button) {
+  border-radius: 999px;
+}
+
+// 占满父宽
+button.fc-button-block:not(.el-button) {
+  width: 100%;
+}

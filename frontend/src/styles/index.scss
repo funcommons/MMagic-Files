@@ -1,0 +1,553 @@
+// ============================================
+// AIGC 中台 - 全局样式
+// ============================================
+
+// 1. 现有变量 (保留, 作为 fallback)
+@use './variables.scss' as *;
+// 2. 新 mixin (define-brand 等)
+@use './mixins.scss' as *;
+// 3. 全局 --app-* 别名 (对任意 data-brand 生效, 把 --brand-* 映射到组件消费的 --app-*)
+@use './app-aliases';
+// 4. 品牌 token (定义 --brand-* + 品牌专属的 --app-* 覆盖, 后加载以赢默认别名)
+//    brand scss 已移到 sdk/theme/brands/, SDK 用户用 @/components/sdk/theme/theme.scss 统一引入
+@use '@/components/sdk/theme/brands';
+// 5. 主题 token (定义 --app-bg 等, 覆盖品牌默认)
+@use './themes';
+// 6. EP 组件覆写
+@use './ep-overrides';
+@use './component-overrides';
+// 7. 不设 Vue 薄封装的 EP 组件全局 fc-* 外观类
+@use '@/components/sdk/theme/element-classes';
+// 8. 原生 <button> 的 SDK 全局 fc-button-* 外观类
+@use '@/components/sdk/theme/button-classes';
+
+// ============================================
+// 重置样式
+// ============================================
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-page);
+  overflow-x: hidden;
+}
+
+// 链接
+a {
+  color: var(--color-info);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+  &:hover {
+    color: var(--color-primary);
+  }
+}
+
+// 滚动条
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: var(--radius-full);
+  &:hover {
+    background: rgba(0, 0, 0, 0.25);
+  }
+}
+
+// 选择文字 — 跟品牌主色, 不再写死 legacy --color-primary (该 token 已删)
+::selection {
+  background: var(--app-primary);
+  color: var(--app-on-primary, #fff);
+}
+
+// 通用类
+.text-primary {
+  color: var(--color-text-primary);
+}
+
+.text-secondary {
+  color: var(--color-text-secondary);
+}
+
+.text-tertiary {
+  color: var(--color-text-tertiary);
+}
+
+.text-brand {
+  color: var(--color-primary);
+}
+
+.bg-brand {
+  background-color: var(--color-primary);
+}
+
+// 卡片
+.card {
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-base);
+  padding: var(--space-lg);
+}
+
+.card-hoverable {
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-base);
+  cursor: pointer;
+  &:hover {
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+// 按钮
+.btn-reset {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  outline: none;
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+}
+
+// Flex 工具类
+.flex {
+  display: flex;
+}
+
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flex-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.items-start {
+  align-items: flex-start;
+}
+
+.items-end {
+  align-items: flex-end;
+}
+
+.justify-center {
+  justify-content: center;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.justify-start {
+  justify-content: flex-start;
+}
+
+.justify-end {
+  justify-content: flex-end;
+}
+
+.gap-xs {
+  gap: var(--space-xs);
+}
+
+.gap-sm {
+  gap: var(--space-sm);
+}
+
+.gap-md {
+  gap: var(--space-md);
+}
+
+.gap-lg {
+  gap: var(--space-lg);
+}
+
+// 间距工具类
+.p-sm {
+  padding: var(--space-sm);
+}
+
+.p-md {
+  padding: var(--space-md);
+}
+
+.p-lg {
+  padding: var(--space-lg);
+}
+
+.p-xl {
+  padding: var(--space-xl);
+}
+
+.m-sm {
+  margin: var(--space-sm);
+}
+
+.m-md {
+  margin: var(--space-md);
+}
+
+.m-lg {
+  margin: var(--space-lg);
+}
+
+// 圆角
+.rounded-sm {
+  border-radius: var(--radius-sm);
+}
+
+.rounded-md {
+  border-radius: var(--radius-md);
+}
+
+.rounded-lg {
+  border-radius: var(--radius-lg);
+}
+
+.rounded-xl {
+  border-radius: var(--radius-xl);
+}
+
+.rounded-full {
+  border-radius: var(--radius-full);
+}
+
+// 文本省略
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ellipsis-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ellipsis-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+// 过渡动画
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity var(--transition-base);
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all var(--transition-base);
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+// Element Plus 主题覆盖
+.el-button--primary {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+  &:hover,
+  &:focus {
+    background-color: var(--color-primary-light);
+    border-color: var(--color-primary-light);
+  }
+  &:active {
+    background-color: var(--color-primary-dark);
+    border-color: var(--color-primary-dark);
+  }
+}
+
+// MessageBox 弹窗样式
+.el-message-box {
+  border-radius: 20px !important;
+  border: none !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15) !important;
+  padding: 28px 32px !important;
+  width: 400px !important;
+
+  .el-message-box__header {
+    padding: 0 0 16px !important;
+    border-bottom: none !important;
+
+    .el-message-box__title {
+      font-size: 18px !important;
+      font-weight: 600 !important;
+      color: var(--color-text-primary) !important;
+      letter-spacing: -0.3px !important;
+    }
+  }
+
+  .el-message-box__content {
+    padding: 0 !important;
+    color: var(--color-text-secondary) !important;
+    font-size: 14px !important;
+    line-height: 1.6 !important;
+  }
+
+  .el-message-box__btns {
+    padding: 24px 0 0 !important;
+    display: flex !important;
+    gap: 12px !important;
+
+    .el-button {
+      flex: 1 !important;
+      padding: 12px 24px !important;
+      border-radius: 12px !important;
+      font-size: 14px !important;
+      font-weight: 600 !important;
+      border: none !important;
+      transition: all 0.2s ease !important;
+
+      &.el-button--default {
+        background: #f5f5f7 !important;
+        color: var(--color-text-primary) !important;
+
+        &:hover {
+          background: #e5e5e7 !important;
+        }
+      }
+
+      &.el-button--primary {
+        background: #007AFF !important;
+        color: white !important;
+        box-shadow: 0 4px 12px rgba(0, 122, 255, 0.25) !important;
+
+        &:hover {
+          background: #0051D5 !important;
+        }
+      }
+    }
+  }
+}
+
+// MessageBox 遮罩层
+.el-overlay {
+  backdrop-filter: blur(4px) !important;
+}
+
+// 创建确认框特殊样式
+.create-confirm-box {
+  .el-message-box__content {
+    padding-top: 4px !important;
+  }
+}
+
+.el-menu {
+  border-right: none;
+}
+
+.el-dialog {
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+.el-card {
+  border-radius: var(--radius-lg);
+  border: none;
+  box-shadow: var(--shadow-sm);
+}
+
+// 输入框样式
+.el-input__wrapper {
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  border: 1px solid var(--color-separator);
+  transition: all var(--transition-fast);
+  &:hover {
+    border-color: var(--color-primary-lightest);
+  }
+  &.is-focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.1);
+  }
+}
+
+// 下拉菜单
+.el-select .el-input__wrapper {
+  border-radius: var(--radius-md);
+}
+
+// 标签
+.el-tag {
+  border-radius: var(--radius-sm);
+  border: none;
+  padding: 4px 10px;
+}
+
+// 加载动画
+.loading-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  color: var(--color-text-secondary);
+}
+
+// 响应式
+@media (max-width: 768px) {
+  :root {
+    --sidebar-width: 0;
+  }
+
+  .hide-mobile {
+    display: none;
+  }
+}
+
+// 动画关键帧
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+// ============================================
+// 响应式间距系统
+// ============================================
+:root { --app-block-pad: 4px; --app-block-mb: 4px; }
+@media (min-width: 768px) { :root { --app-block-pad: 8px; --app-block-mb: 8px; } }
+@media (min-width: 1024px) { :root { --app-block-pad: 16px; --app-block-mb: 16px; } }
+
+// .app-page — 页面根容器, flex column + 响应式 gap
+.app-page {
+  padding: 4px;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+@media (min-width: 768px) {
+  .app-page { padding: 8px; gap: 8px; }
+}
+@media (min-width: 1024px) {
+  .app-page { padding: 16px; gap: 16px; }
+}
+
+// Block components inside .fc-main: 响应式 padding (规范 §3.2.5)
+.fc-main .fc-section {
+  padding: var(--app-block-pad);
+}
+
+.titled-section__title {
+  font-size: 14px;
+}
+.titled-section__desc {
+  font-size: 12px;
+  margin-top: 2px;
+}
+@media (min-width: 768px) {
+  .titled-section__title { font-size: 15px; }
+  .titled-section__desc { font-size: 12px; }
+}
+@media (min-width: 1024px) {
+  .titled-section__title { font-size: 16px; }
+  .titled-section__desc { font-size: 13px; margin-top: 6px; }
+}
+
+// 布局组件在工作区内必须 0 间距 (规范 §3.2.4)
+.fc-main {
+  .el-row,
+  .el-col,
+  .el-tabs__content {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+}
+
+// 表格横向滚动容器
+.table-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+
+  table,
+  .el-table {
+    min-width: 600px;
+  }
+}
+
+// ---- 移动端溢出保护 (规范) ----
+@media (max-width: 768px) {
+  .app-page,
+  .fc-main,
+  .app-content,
+  .fc-section,
+  .fc-section-header {
+    overflow-x: hidden;
+  }
+  .app-page * {
+    min-width: 0;
+  }
+  .app-page .el-card,
+  .app-page .el-table {
+    max-width: 100%;
+  }
+}

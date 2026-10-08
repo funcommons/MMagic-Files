@@ -1,0 +1,8 @@
+# IDE
+.idea/
+
+# Claude 本机工作区配置（skills 软链指向仓外，随克隆失效，不入库）
+.claude/
+
+# 系统
+.DS_Store
