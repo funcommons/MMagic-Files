@@ -1,0 +1,273 @@
+
+Running 34 tests using 1 worker
+
+  ✓   1 e2e/00-warmup.spec.ts:13:1 › warmup：预热重依赖并留存工作台基线截图 (1.5s)
+[boot-01] console 证据：
+（无 console.error / pageerror）
+  ✓   2 e2e/line1-boot-error.spec.ts:10:3 › 业务线1：boot 错误态 › boot-01：URL 无 fragment → 配置错误卡渲染（code=4001） (278ms)
+[boot-02] console 证据：
+（无 console.error / pageerror）
+  ✓   3 e2e/line1-boot-error.spec.ts:20:3 › 业务线1：boot 错误态 › boot-02：#config 为坏 JSON → 4001 + JSON 解析失败 detail (277ms)
+[boot-03] console 证据：
+（无 console.error / pageerror）
+  ✓   4 e2e/line1-boot-error.spec.ts:30:3 › 业务线1：boot 错误态 › boot-03：#config v=2（版本不支持）→ 4001 + 版本提示 (283ms)
+[plug-01] error 事件 payload={"code":4201,"message":"插件加载失败：Failed to fetch"}
+[plug-01] console 证据：
+[console.error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+  ✓   5 e2e/line10-plugins.spec.ts:14:3 › 业务线10：插件失败路径 › plug-01：不可达插件 URL → 打开未匹配文件触发 ensureApps → error(4201) + fallback (468ms)
+[plug-02] error 事件 payload={"code":4201,"message":"插件 SRI 校验不符：https://sri.mock.local/plugin.js"}
+[plug-02] console 证据：
+（无 console.error / pageerror）
+  ✓   6 e2e/line10-plugins.spec.ts:40:3 › 业务线10：插件失败路径 › plug-02：SRI 校验不符 → error(4201)，插件未注册 (469ms)
+[ws-01] console 证据：
+（无 console.error / pageerror）
+  ✓   7 e2e/line2-workspace-browse.spec.ts:12:3 › 业务线2：workspace 浏览 › ws-01：根目录树渲染（目录行 + 文件行 + 大小/类型列） (348ms)
+[ws-02] console 证据：
+（无 console.error / pageerror）
+  ✓   8 e2e/line2-workspace-browse.spec.ts:32:3 › 业务线2：workspace 浏览 › ws-02：进入子目录 + 面包屑回跳 (498ms)
+[ws-03] console 证据：
+（无 console.error / pageerror）
+  ✓   9 e2e/line2-workspace-browse.spec.ts:58:3 › 业务线2：workspace 浏览 › ws-03：子目录懒加载 + ListObjectsV2 聚合翻页（IsTruncated→continuation-token） (360ms)
+[ws-04] console 证据：
+[console.error] Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+[console.error] [Unhandled Rejection] SdkError: S3 请求失败：HTTP 500（InternalError）
+    at mapHttpError (http://localhost:5199/src/sdk/s3/client.ts:43:10)
+    at S3SigV4Client.request (http://localhost:5199/src/sdk/s3/client.ts:119:11)
+    at async S3SigV4Client.list (http://localhost:5199/src/sdk/s3/client.ts:129:17)
+    at async http://localhost:5199/src/files/tree-store.ts:52:22
+    at async guarded (http://localhost:5199/src/files/tree-store.ts:31:17)
+    at async fetchDir (http://localhost:5199/src/files/tree-store.ts:63:7)
+    at async Proxy.loadDir (http://localhost:5199/src/files/tree-store.ts:70:5)
+[console.error] Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+[console.error] [Unhandled Rejection] SdkError: S3 请求失败：HTTP 500（InternalError）
+    at mapHttpError (http://localhost:5199/src/sdk/s3/client.ts:43:10)
+    at S3SigV4Client.request (http://localhost:5199/src/sdk/s3/client.ts:119:11)
+    at async S3SigV4Client.list (http://localhost:5199/src/sdk/s3/client.ts:129:17)
+    at async http://localhost:5199/src/files/tree-store.ts:52:22
+    at async guarded (http://localhost:5199/src/files/tree-store.ts:31:17)
+    at async fetchDir (http://localhost:5199/src/files/tree-store.ts:63:7)
+    at async Proxy.loadDir (http://localhost:5199/src/files/tree-store.ts:70:5)
+[pageerror] S3 请求失败：HTTP 500（InternalError）
+[pageerror] S3 请求失败：HTTP 500（InternalError）
+  ✓  10 e2e/line2-workspace-browse.spec.ts:81:3 › 业务线2：workspace 浏览 › ws-04：List 500 → 失败态（启动即失败空态 + 子目录失败 toast）→ 重试恢复 (481ms)
+[render-01] console 证据：
+（无 console.error / pageerror）
+  ✓  11 e2e/line3-renderers.spec.ts:20:3 › 业务线3：渲染器预览 › render-01：.md → markdown HTML（标题/链接加固 target=_blank） (500ms)
+[render-02] console 证据：
+（无 console.error / pageerror）
+  ✓  12 e2e/line3-renderers.spec.ts:34:3 › 业务线3：渲染器预览 › render-02：.png → <img>（blob URL） (388ms)
+  ✘  13 e2e/line3-renderers.spec.ts:45:3 › 业务线3：渲染器预览 › render-03：【计划对照】.csv 默认应用应为 csv-table 表格——实测被 code-editor 抢占（发现） (15.7s)
+[render-03b] 实测：.csv 默认命中 code-editor（注册序先于 csv-table），csv-table 预览不可达
+[render-03b] console 证据：
+（无 console.error / pageerror）
+  ✓  14 e2e/line3-renderers.spec.ts:61:3 › 业务线3：渲染器预览 › render-03b：.csv 实测行为——默认打开 code-editor（Monaco 文本态），csv-table 不可达（发现佐证） (773ms)
+[render-04] console 证据：
+（无 console.error / pageerror）
+  ✓  15 e2e/line3-renderers.spec.ts:73:3 › 业务线3：渲染器预览 › render-04：.txt → Monaco 编辑器（只读预览，内容一致） (715ms)
+[render-05] console 证据：
+（无 console.error / pageerror）
+  ✓  16 e2e/line3-renderers.spec.ts:84:3 › 业务线3：渲染器预览 › render-05：.mp4 → <video controls> (380ms)
+[render-06] console 证据：
+（无 console.error / pageerror）
+  ✓  17 e2e/line3-renderers.spec.ts:95:3 › 业务线3：渲染器预览 › render-06：未匹配类型 .xyz → fallback 下载提示（含下载按钮） (365ms)
+[render-07] console 证据：
+[console.error] Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+[console.error] [Unhandled Rejection] SdkError: S3 请求失败：HTTP 500（InternalError）
+    at mapHttpError (http://localhost:5199/src/sdk/s3/client.ts:43:10)
+    at S3SigV4Client.request (http://localhost:5199/src/sdk/s3/client.ts:119:11)
+    at async Object.getObject (http://localhost:5199/src/apps/datasource.ts:3:32)
+    at async Object.markdownRenderer [as renderer] (http://localhost:5199/src/apps/renderers/markdown.ts:33:16)
+    at async Object.open (http://localhost:5199/src/files/preview.ts:58:22)
+[pageerror] S3 请求失败：HTTP 500（InternalError）
+  ✓  18 e2e/line3-renderers.spec.ts:107:3 › 业务线3：渲染器预览 › render-07：渲染取流 GET 500 → 错误 toast（openFile 链兜底） (444ms)
+[tb-01] console 证据：
+（无 console.error / pageerror）
+  ✓  19 e2e/line4-toolbar.spec.ts:30:3 › 业务线4：工具栏操作 › tb-01：新建目录 → PUT 目录标记 → 树出现新目录 + fileChanged(put) (983ms)
+[tb-02] console 证据：
+（无 console.error / pageerror）
+  ✓  20 e2e/line4-toolbar.spec.ts:45:3 › 业务线4：工具栏操作 › tb-02：选中文件 → 删除（confirm）→ DeleteObjects + 行消失 + fileChanged(delete) (1.1s)
+[tb-03] console 证据：
+（无 console.error / pageerror）
+  ✓  21 e2e/line4-toolbar.spec.ts:64:3 › 业务线4：工具栏操作 › tb-03：重命名 → copy+delete 语义 → 行更新 + fileChanged(rename) (1.1s)
+[tb-04] console 证据：
+（无 console.error / pageerror）
+  ✓  22 e2e/line4-toolbar.spec.ts:82:3 › 业务线4：工具栏操作 › tb-04：刷新 → 强制重拉当前目录（list 请求 +1） (416ms)
+[up-01] 上传后未刷新即可见行数=0（0=需要手动刷新，见发现清单）
+[up-01] console 证据：
+（无 console.error / pageerror）
+  ✓  23 e2e/line5-upload.spec.ts:27:3 › 业务线5：上传 › up-01：上传 txt → PUT + uploadDone 事件（树同步情况一并记录） (484ms)
+[up-02] console 证据：
+（无 console.error / pageerror）
+  ✓  24 e2e/line5-upload.spec.ts:54:3 › 业务线5：上传 › up-02：denyExts 命中（.exe）→ 拒收 toast，无 PUT (367ms)
+[up-03] console 证据：
+（无 console.error / pageerror）
+  ✓  25 e2e/line5-upload.spec.ts:70:3 › 业务线5：上传 › up-03：uploadMaxBytes 超限 → 拒收 toast（size），无 PUT (384ms)
+[sess-01] console 证据：
+（无 console.error / pageerror）
+  ✓  26 e2e/line6-session-expiry.spec.ts:13:3 › 业务线6：会话到期 › sess-01：ttl=5s → 到期整屏遮罩 + expired(ttl) 事件 (5.7s)
+[sess-02] navigate reply={"ok":false,"code":-1,"name":"navigate","timeout":true}（code=-1=harness 超时无回包）
+[sess-02] console 证据：
+（无 console.error / pageerror）
+  ✓  27 e2e/line6-session-expiry.spec.ts:32:3 › 业务线6：会话到期 › sess-02：到期后 navigate 命令——实测通道已销毁无回包（契约写明 5000，偏差记发现） (11.8s)
+[feat-01] remove reply={"ns":"mmagic-files","v":1,"kind":"reply","id":"cmd-muztyd9a-oozype","name":"remove","payload":{"code":4301,"message":"功能已关闭：features.delete=false"},"ok":false,"code":4301}
+[feat-01] console 证据：
+（无 console.error / pageerror）
+  ✓  28 e2e/line7-features.spec.ts:30:3 › 业务线7：features 门控（delete=false） › feat-01：JSSDK remove 命令 → reply ok=false code=4301（API 拒绝层） (397ms)
+[feat-02] features.delete=false 且有选中项时删除按钮：visible=true disabled=false
+  ✘  29 e2e/line7-features.spec.ts:43:3 › 业务线7：features 门控（delete=false） › feat-02：【手册对照】选中文件后删除按钮应隐藏/禁用——实测可用（发现） (675ms)
+[feat-03] features.delete=false 时 UI 删除路径发出的 DeleteObjects keys=["sessions/test/notes.txt"]
+  ✘  30 e2e/line7-features.spec.ts:62:3 › 业务线7：features 门控（delete=false） › feat-03：【手册对照】UI 删除路径是否被整链拒绝——实测绕过门控真实删除（发现） (2.6s)
+[file-01] 只读 #file 打开后源对象 GET 次数=0（0=未渲染内容，见发现清单）
+  ✘  31 e2e/line8-single-file.spec.ts:14:3 › 业务线8：单文件模式（#file） › file-01：只读 #file（无 save）→ 名称与「只读」标记；渲染情况实测记录 (2.4s)
+[file-02] console 证据：
+（无 console.error / pageerror）
+  ✓  32 e2e/line8-single-file.spec.ts:32:3 › 业务线8：单文件模式（#file） › file-02：可写 #file（含 save 段）→ 「可编辑」标记 (377ms)
+[office-01] 降级提示文案="Word 文档加载失败"
+[office-01] console 证据：
+（无 console.error / pageerror）
+  ✓  33 e2e/line9-office.spec.ts:37:3 › 业务线9：office 预览 › office-01：docx 非法 zip → 可控降级提示（docx-load-fail），不崩溃 (383ms)
+[office-02] console 证据：
+（无 console.error / pageerror）
+  ✓  34 e2e/line9-office.spec.ts:51:3 › 业务线9：office 预览 › office-02：xlsx 真实 zip → 表格渲染 + sheet 标签切换 (483ms)
+
+
+  1) e2e/line3-renderers.spec.ts:45:3 › 业务线3：渲染器预览 › render-03：【计划对照】.csv 默认应用应为 csv-table 表格——实测被 code-editor 抢占（发现） 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: locator('.mmagic-csv-table')
+    Expected: visible
+    Timeout: 15000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" locator('.mmagic-csv-table') with timeout 15000ms
+      - waiting for locator('.mmagic-csv-table')
+
+
+      52 |     await shot(page, 'render-03-csv-default-hijacked-FINDING.png', false)
+      53 |     // 契约期望（csv-table 表格）断言 → 失败保留发现证据
+    > 54 |     await expect(page.locator('.mmagic-csv-table')).toBeVisible()
+         |                                                     ^
+      55 |     const headers = await page.locator('.mmagic-csv-table thead th, .mmagic-csv-table thead td').allTextContents()
+      56 |     expect(headers.join('|')).toContain('name')
+      57 |     await expect(page.locator('.mmagic-csv-table tbody', { hasText: 'Alice' })).toBeVisible()
+        at /Users/justin/codes/funcommons/MMagic-Files/frontend/e2e/line3-renderers.spec.ts:54:53
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../test-report/2026-10-09-01/artifacts/line3-renderers-业务线3：渲染器预览-c0fec--表格——实测被-code-editor-抢占（发现）/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../test-report/2026-10-09-01/artifacts/line3-renderers-业务线3：渲染器预览-c0fec--表格——实测被-code-editor-抢占（发现）/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../test-report/2026-10-09-01/artifacts/line3-renderers-业务线3：渲染器预览-c0fec--表格——实测被-code-editor-抢占（发现）/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace ../test-report/2026-10-09-01/artifacts/line3-renderers-业务线3：渲染器预览-c0fec--表格——实测被-code-editor-抢占（发现）/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) e2e/line7-features.spec.ts:43:3 › 业务线7：features 门控（delete=false） › feat-02：【手册对照】选中文件后删除按钮应隐藏/禁用——实测可用（发现） 
+
+    Error: features.delete=false 时删除按钮应隐藏或禁用（用户手册承诺），实测选中后可点
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+      56 |     await shot(page, 'feat-02-delete-button-still-enabled-FINDING.png')
+      57 |     // 手册承诺断言（预期失败保留证据）
+    > 58 |     expect(isDisabled, 'features.delete=false 时删除按钮应隐藏或禁用（用户手册承诺），实测选中后可点').toBe(true)
+         |                                                                             ^
+      59 |     console.log('[feat-02] console 证据：\n' + consoleEvidence(cap))
+      60 |   })
+      61 |
+        at /Users/justin/codes/funcommons/MMagic-Files/frontend/e2e/line7-features.spec.ts:58:77
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../test-report/2026-10-09-01/artifacts/line7-features-业务线7：featur-43230-照】选中文件后删除按钮应隐藏-禁用——实测可用（发现）/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../test-report/2026-10-09-01/artifacts/line7-features-业务线7：featur-43230-照】选中文件后删除按钮应隐藏-禁用——实测可用（发现）/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../test-report/2026-10-09-01/artifacts/line7-features-业务线7：featur-43230-照】选中文件后删除按钮应隐藏-禁用——实测可用（发现）/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace ../test-report/2026-10-09-01/artifacts/line7-features-业务线7：featur-43230-照】选中文件后删除按钮应隐藏-禁用——实测可用（发现）/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) e2e/line7-features.spec.ts:62:3 › 业务线7：features 门控（delete=false） › feat-03：【手册对照】UI 删除路径是否被整链拒绝——实测绕过门控真实删除（发现） 
+
+    Error: features.delete=false 时 UI 内部路径不应触发 S3 删除（手册承诺整链拒绝）
+
+    expect(received).toHaveLength(expected)
+
+    Expected length: 0
+    Received length: 1
+    Received array:  ["sessions/test/notes.txt"]
+
+      78 |     await shot(page, 'feat-03-ui-delete-bypasses-gate-FINDING.png')
+      79 |     // 手册承诺断言（预期失败保留证据）
+    > 80 |     expect(deleted, 'features.delete=false 时 UI 内部路径不应触发 S3 删除（手册承诺整链拒绝）').toHaveLength(0)
+         |                                                                            ^
+      81 |     console.log('[feat-03] console 证据：\n' + consoleEvidence(cap))
+      82 |   })
+      83 | })
+        at /Users/justin/codes/funcommons/MMagic-Files/frontend/e2e/line7-features.spec.ts:80:76
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../test-report/2026-10-09-01/artifacts/line7-features-业务线7：featur-572cb-删除路径是否被整链拒绝——实测绕过门控真实删除（发现）/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../test-report/2026-10-09-01/artifacts/line7-features-业务线7：featur-572cb-删除路径是否被整链拒绝——实测绕过门控真实删除（发现）/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../test-report/2026-10-09-01/artifacts/line7-features-业务线7：featur-572cb-删除路径是否被整链拒绝——实测绕过门控真实删除（发现）/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace ../test-report/2026-10-09-01/artifacts/line7-features-业务线7：featur-572cb-删除路径是否被整链拒绝——实测绕过门控真实删除（发现）/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) e2e/line8-single-file.spec.ts:14:3 › 业务线8：单文件模式（#file） › file-01：只读 #file（无 save）→ 名称与「只读」标记；渲染情况实测记录 
+
+    Error: 单文件只读模式应拉取并渲染 source 内容（用户手册「预览应用渲染」）
+
+    expect(received).toBeGreaterThan(expected)
+
+    Expected: > 0
+    Received:   0
+
+      26 |     await shot(page, 'file-01-readonly-plaintext-FINDING.png')
+      27 |     // 契约期望渲染 → 断言失败保留「占位未渲染」证据
+    > 28 |     expect(got.length, '单文件只读模式应拉取并渲染 source 内容（用户手册「预览应用渲染」）').toBeGreaterThan(0)
+         |                                                                 ^
+      29 |     console.log('[file-01] console 证据：\n' + consoleEvidence(cap))
+      30 |   })
+      31 |
+        at /Users/justin/codes/funcommons/MMagic-Files/frontend/e2e/line8-single-file.spec.ts:28:65
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../test-report/2026-10-09-01/artifacts/line8-single-file-业务线8：单文件-6e79d-无-save）→-名称与「只读」标记；渲染情况实测记录/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../test-report/2026-10-09-01/artifacts/line8-single-file-业务线8：单文件-6e79d-无-save）→-名称与「只读」标记；渲染情况实测记录/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../test-report/2026-10-09-01/artifacts/line8-single-file-业务线8：单文件-6e79d-无-save）→-名称与「只读」标记；渲染情况实测记录/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace ../test-report/2026-10-09-01/artifacts/line8-single-file-业务线8：单文件-6e79d-无-save）→-名称与「只读」标记；渲染情况实测记录/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4 failed
+    e2e/line3-renderers.spec.ts:45:3 › 业务线3：渲染器预览 › render-03：【计划对照】.csv 默认应用应为 csv-table 表格——实测被 code-editor 抢占（发现） 
+    e2e/line7-features.spec.ts:43:3 › 业务线7：features 门控（delete=false） › feat-02：【手册对照】选中文件后删除按钮应隐藏/禁用——实测可用（发现） 
+    e2e/line7-features.spec.ts:62:3 › 业务线7：features 门控（delete=false） › feat-03：【手册对照】UI 删除路径是否被整链拒绝——实测绕过门控真实删除（发现） 
+    e2e/line8-single-file.spec.ts:14:3 › 业务线8：单文件模式（#file） › file-01：只读 #file（无 save）→ 名称与「只读」标记；渲染情况实测记录 
+  30 passed (56.0s)
