@@ -4,6 +4,10 @@ import { createI18n } from 'vue-i18n'
 import { createPinia } from 'pinia'
 import ElementPlus from 'element-plus'
 
+// P2 清扫：Node≥22 + jsdom 反复探测 localStorage 触发成片 ExperimentalWarning（约 40 行/worker），
+// 淹没真实失败输出——测试进程内静默 warning 事件（仅影响本 vitest 进程）
+process.removeAllListeners?.('warning')
+
 // SDK 组件用 useI18n() (如 FcEmpty), 测试环境注册一个空 i18n 兜底 (t 回退到 key)
 const i18n = createI18n({
   legacy: false,

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>MMF E2E Host Harness</title>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 8px; }
+      h3 { margin: 4px 0; font-size: 14px; }
+      #events {
+        max-height: 240px; overflow: auto; background: #101418; color: #7fe27f;
+        font: 11px/1.5 ui-monospace, Menlo, monospace; padding: 6px 8px; border-radius: 6px;
+        white-space: pre-wrap; word-break: break-all;
+      }
+      #events .evt-err { color: #ff8484; }
+      iframe { width: 1400px; height: 860px; border: 1px solid #999; margin-top: 6px; background: #fff; }
+    </style>
+  </head>
+  <body>
+    <h3>MMagic-Files E2E 宿主 harness（postMessage 事件流，ns=mmagic-files）</h3>
+    <div id="events"></div>
+    <iframe id="mmf" title="mmagic-files app"></iframe>
+    <script>
+      // E2E 宿主页：按契约嵌入 iframe（fragment 传 #config/#file），捕获双向 postMessage。
+      // 用法: /e2e/host.html?config=<json> 或 ?file=<json>（均可 encodeURIComponent）
+      window.__mmfEvents = []
+      window.__mmfReplies = []
+
+      var qs = new URLSearchParams(location.search)
+      var target = qs.get('target') || '/'
+      var cfg = qs.get('config')
+      var fileCfg = qs.get('file')
+
+      var eventsEl = document.getElementById('events')
+      function logLine(text, isError) {
+        var line = document.createElement('div')
+        if (isError) line.className = 'evt-err'
+        line.textContent = text
+        eventsEl.appendChild(line)
+        eventsEl.scrollTop = eventsEl.scrollHeight
+      }
+
+      window.addEventListener('message', function (ev) {
+        var d = ev.data
+        if (!d || d.ns !== 'mmagic-files') return
+        if (d.kind === 'reply') {
+          window.__mmfReplies.push(d)
+          logLine(
+            '[reply ' + d.name + '] ok=' + d.ok + (d.ok === false ? ' code=' + d.code + ' payload=' + JSON.stringify(d.payload) : ' payload=' + JSON.stringify(d.payload)),
+            d.ok === false
+          )
+          return
+        }
+        if (d.kind === 'evt') {
+          window.__mmfEvents.push(d)
+          logLine('[evt ' + d.name + '] ' + JSON.stringify(d.payload), d.name === 'error' || d.name === 'expired')
+        }
+      })
+
+      var src = target
+      if (cfg !== null) src += '#config=' + encodeURIComponent(cfg)
+      if (fileCfg !== null) src += '#file=' + encodeURIComponent(fileCfg)
+      var frame = document.getElementById('mmf')
+      frame.src = src
+      window.__mmfFrame = frame
+
+      /** 发送 cmd 并等 reply（超时回 {ok:false,code:-1,timeout:true}） */
+      window.__mmfSend = function (name, payload, timeoutMs) {
+        timeoutMs = timeoutMs || 10000
+        return new Promise(function (resolve) {
+          var id = 'cmd-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8)
+          var win = frame.contentWindow
+          win.postMessage({ ns: 'mmagic-files', v: 1, kind: 'cmd', id: id, name: name, payload: payload === undefined ? {} : payload }, location.origin)
+          var timer = setTimeout(function () {
+            window.removeEventListener('message', on)
+            resolve({ ok: false, code: -1, name: name, timeout: true })
+          }, timeoutMs)
+          function on(ev) {
+            var d = ev.data
+            if (d && d.ns === 'mmagic-files' && d.kind === 'reply' && d.id === id) {
+              clearTimeout(timer)
+              window.removeEventListener('message', on)
+              resolve(d)
+            }
+          }
+          window.addEventListener('message', on)
+        })
+      }
+    </script>
+  </body>
+</html>
