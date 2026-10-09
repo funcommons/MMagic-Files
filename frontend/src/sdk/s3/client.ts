@@ -8,7 +8,7 @@
  */
 import { ERROR_CODES, SdkError } from '../errorCodes'
 import type { BackendConfig, S3Client, S3ListResult, S3ObjectSummary } from '../types'
-import { encodeRfc3986, observeServerDate, presignGet, signRequest } from './sigv4'
+import { encodeRfc3986, observeServerDate, presignGet, presignPut, signRequest } from './sigv4'
 import type { SigV4Body } from './sigv4'
 
 const TE = new TextEncoder()
@@ -334,9 +334,24 @@ export class S3SigV4Client implements S3Client {
    * nowMs 仅测试注入（与 signRequest 同口径）；clockOffsetMs 走 §4.3 校准值。
    */
   getPresignedUrl(key: string, expiresSec?: number, nowMs?: number): string {
+    return this.presignedUrl('GET', key, expiresSec, nowMs)
+  }
+
+  /**
+   * 预签名 PUT URL（S3Client 可选能力；Lane H-2 分享对话框「上传链接」——
+   * 对方无需凭证即可向该 key 直传）。与 getPresignedUrl 完全同构：
+   * 同默认 3600s / 同 TTL 钳制 / 同 clockOffset 校准 / 同 key 逐段编码，仅 method=PUT。
+   */
+  presignPutUrl(key: string, expiresSec?: number, nowMs?: number): string {
+    return this.presignedUrl('PUT', key, expiresSec, nowMs)
+  }
+
+  /** 预签名统一口（GET/PUT 同构收口）：有效期钳制与参数组装仅此一份，两出口零复制 */
+  private presignedUrl(method: 'GET' | 'PUT', key: string, expiresSec?: number, nowMs?: number): string {
     const cap = Math.min(this.ttlSeconds ?? AWS_MAX_PRESIGN_EXPIRES_SEC, AWS_MAX_PRESIGN_EXPIRES_SEC)
     const requested = Math.max(1, Math.floor(expiresSec ?? DEFAULT_PRESIGN_EXPIRES_SEC))
-    return presignGet({
+    const presign = method === 'GET' ? presignGet : presignPut
+    return presign({
       url: this.objectUrl(key),
       expiresSec: Math.min(requested, Math.max(1, Math.floor(cap))),
       credentials: this.credentials,

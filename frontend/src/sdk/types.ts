@@ -150,6 +150,8 @@ export interface S3Client {
   abortMultipart(key: string, uploadId: string): Promise<void>
   /** 预签名 GET URL（查询串 SigV4；媒体渲染器用 <video src> 拿浏览器原生 Range/渐进加载）。可选能力 */
   getPresignedUrl?(key: string, expiresSec?: number): string
+  /** 预签名 PUT URL（查询串 SigV4；分享对话框「上传链接」用——对方无需凭证即可向该 key 直传）。可选能力 */
+  presignPutUrl?(key: string, expiresSec?: number): string
 }
 
 // ───────────────────────── 命令/事件 payload ─────────────────────────

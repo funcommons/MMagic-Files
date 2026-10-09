@@ -353,3 +353,13 @@ export function presignGet(input: PresignInput): string {
   const base = input.url.split('?')[0] ?? input.url
   return `${base}?${canonicalQuery}&X-Amz-Signature=${signature}`
 }
+
+/**
+ * 预签名 PUT（Lane H-2 分享「上传链接」）：与 presignGet 完全同构，仅 method=PUT——
+ * 持链者无需凭证即可向该 key 直传；同为 UNSIGNED-PAYLOAD 口径、无 content 头参与签名
+ * （接收方自定 content-type）。PresignInput.method 本就开放参数，此处给具名出口，
+ * 让调用方语义显式、与 presignGet 类型面对称（对称性由同构构造保证，见 presignPutUrl）。
+ */
+export function presignPut(input: PresignInput): string {
+  return presignGet({ ...input, method: 'PUT' })
+}

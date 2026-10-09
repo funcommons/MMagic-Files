@@ -160,7 +160,9 @@
 | G3 状态栏+只读降级 | StatusBar（TTL 倒计时/bucket·prefix/传输数/只读徽章）+只读黄条幅；集成由主线收口 | files/ui/StatusBar.vue(新+test) | 在跑 |
 | G4 大文件分级打开 | preview 尺寸闸（<20MB 直开/20~50MB 确认/>50MB 拒+下载引导；confirmLargeFile 依赖注入） | files/preview.ts(+test) | 在跑 |
 | G5 连接向导+多 Profile | profiles(localStorage)+连接表单+测试连接（写入 mmagic.config.raw 备份→reload 走既有恢复链，不暴露 URL）；入口由主线收口 | files/profiles.ts(新+test) files/ui/ConnectWizard.vue(新+test) | 在跑 |
-| 主线收口 | SearchDialog/StatusBar/向导入口挂 Toolbar+Home；定向回归 | Toolbar.vue Home.vue | 候 G |
+| 主线收口 | SearchDialog/StatusBar/向导入口挂 Toolbar+Home；定向回归 | Toolbar.vue Home.vue | ✅ ①t(key,params) 透传（G4 {limit}）②confirmLargeFile=ElMessageBox ③Toolbar 搜索钮+SearchDialog 挂载（open/locate 两路）④StatusBar 挂载（activeTransfers/isReadonly/bucket/remainingMs 数据源）⑤!ok 卡片挂 ConnectWizard（wizard.title 入口） |
+| **回归 #5** | — | typecheck 0 / vitest **1029+1skip**（73 文件）/ e2e **40/40** / build ✓ / lint 0 错 7 警（+G3 有意 2） | ✅ 零修复 |
+| 收口候改（挂账） | — | ①config.ts 垫片收敛：sessionToken/prefix 非空强校验→放开后 G5 的 LOCAL_SESSION_TOKEN/LOCAL_ROOT_PREFIX 改 ''（需 JSSDK/手册文档同步=B 批）②commands.ts JSSDK download 可选接 DownloadQueue ③词典 download.active 缺「下载中」键 | 候令 |
 
 ### Wave H（P1×7，G 收口后）
 
@@ -174,3 +176,17 @@
 | H6 插件样例工程 | examples/ 三样例（todo/ipynb/svg-painter）可运行+loader 集成测试（闭环审计「样例零落地」） | examples/**(+test) | 候 G |
 
 - G 收口即全量回归 #5；H 收口全量回归 #6（终局候令提交）
+
+### Wave H（P1×7，H-1 四路并行 + H-2 合并 lane）
+
+| Lane | 内容 | 独占写文件 | 状态 |
+| --- | --- | --- | --- |
+| H1 预览 tab 化+钉住 | 同左（淘汰保护集含新开 tab；tab 记忆 appId；rename/expire 同步清 tab） | 同左 | ✅ +22 vitest；e2e 41/41（wb-06） |
+| H3 分页跳页 | 客户端切片分页（tree-store 未动，聚合缓存上切片，ws-03 兼容） | files/ui/TreePanel.vue(仅分页区) | ✅ +4 vitest、ui 32/32 |
+| H5 命令面板升级 | 双模式/最近置顶/keys 列/registerCommandsProvider+registerFileSearchProvider seam | App.vue FcCommandPalette.vue useCommandPaletteState.ts(+36 用例) | ✅ 主线收口：Home 接 SearchIndex 适配器+4 真实动作 |
+| H6 插件样例工程 | examples/ 三样例正本（817 行）+15 集成用例（registry 校验/渲染冒烟/SRI 可钉） | examples/** | ✅ 15/15 |
+| H-2 键盘流+分享 | ✅ +29 vitest（1135 总）+wb-07；presignPut≡presignGet(PUT) 同构对称；键盘流全收 TreePanel；分享 TTL 钳制=凭证寿命（e2e 已钉） | 同左 | ✅ |
+| **回归 #6** | — | **五门禁全绿**：typecheck 0 / lint 0 错 8 警（+PreviewTabs 1 条风格项）/ vitest **1135+1skip（79 文件）**/ e2e **42**（wb-07 红灯判为测试前提错误——同秒重签确定性 HMAC，跨秒修复）/ build ✓（G/H 全组件入 Home 懒加载 chunk 88.6kB，未进主包）；四核对：share 单实例/键盘零冲突/TTL 钳制同源/Home 零重复挂载 | ✅ 零产品代码改动 |
+| 三审 | — | 4 路完成：42 项旧结论全维持（零回退）；H6 样例正式判「已闭合」；H1/H5 两处 P2 + G5 向导两处 P1 均已主线修复；手册欠「搜索/分享/键盘/传输中心/向导」一章（回写候选清单已列） | ✅ |
+| 三审修复 | sdk/config.ts profiles.ts(+config/profiles/wizard tests) views/Home.vue | ①关激活 tab 换邻位先过 gate 再移除（零半更新恢复）②palette 打开走 openEntry 收口（陈旧 appId 不再污染 tab）③config.ts 放开空 prefix/sessionToken（本地 AK/SK 形态；手册口径回写候 B）④profiles 垫片收敛 ''+'/'→'' 归一化 | ✅ typecheck 0 / vitest **1136+1skip** / e2e **42/42** |
+| 终局挂账（候令） | — | 🔵B 文档回写清单（JSSDK 分期/script 口径/4901/-1/lazy/注册序；手册新章+本地模式例外+pathStyle 字段）；待裁=SRI 缺省执法；功能欠账=ListParts 续传/单文件 ttl/>50MP/csv>20MB 截断化/宿主 SDK 包；微瑕=5MB 单位统一/transfer.conflict-abort 死键/命令入口传输面板可见性（产品口径） | 候令 |

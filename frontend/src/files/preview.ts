@@ -10,6 +10,13 @@
  *  - 切回=renderer 重跑，第 4 参回注 savedStates.get(entry.key)（插件未声明 getState 时为 undefined）
  *  - renderer 同步抛/拒绝/10s 超时 → per-tab 错误边界（标题+信息+重试+下载门控）；超时后迟到的结算 dispose 其结果并忽略
  *  - open(entry, { appId })：指定应用走 registry.require（既有 not-found 语义），未命中=错误节点不抛裸异常
+ *  - Lane G4 尺寸总闸（open 前置，先于 beforeDispose gate / registry 解析）：
+ *      size ≤ CONFIRM(20MB) 直开；CONFIRM < size ≤ REJECT(50MB) 询问宿主 confirmLargeFile
+ *      （false/异常=取消本次 open，零半更新；无回调=放行，向后兼容）；size > REJECT 拒绝节点
+ *      （不取流不渲染，文案 largefile.rejected + 下载钮 canDownload/onDownload 双门）。
+ *    层次：本闸=预览链上游总闸（仅凭列表元数据判定，零取流）；渲染器自有上限=下游兜底
+ *      （已取流后的内存防线：code/markdown 5MB、csv 20MB、heic 32MB 拒转——口径独立各管一段；
+ *      pdf 渲染器无自带上限，主要依赖本总闸）。size 缺失/0（单文件模式伪条目）跳过本闸。
  */
 import { AppRegistry } from '@/apps/registry'
 import { createAppCtx } from '@/apps/ctx'
@@ -23,11 +30,24 @@ const RENDER_TIMEOUT_MS = 10_000
 /** savedState per-key 容量上限：超出淘汰最旧 */
 const SAVED_STATE_LIMIT = 32
 
+/**
+ * 大文件分级闸阈值（Lane G4，建议默认值——《第一期文件类型支持计划.md》§三「可配」口径）：
+ * CONFIRM 以上询问宿主、REJECT 以上直接拒绝；两者间留给确认 UI 裁决。
+ */
+export const PREVIEW_CONFIRM_BYTES = 20 * 1024 * 1024
+export const PREVIEW_REJECT_BYTES = 50 * 1024 * 1024
+
+/** 阈值展示文案：常量恒为 MB 整数倍，直接除（'20MB'/'50MB'） */
+function formatLimit(bytes: number): string {
+  return `${bytes / (1024 * 1024)}MB`
+}
+
 export interface PreviewOptions {
   container: HTMLElement
   registry: AppRegistry
   datasource: AppDataSource
-  t: (key: string) => string
+  /** 宿主词典（i18n）：params 透传做占位插值（vue-i18n 具名插值口径；宿主包装器需把第二参转发给 t） */
+  t: (key: string, params?: Record<string, unknown>) => string
   theme: Record<string, string>
   notifyFileChanged: (payload: { key: string; action: 'put' | 'delete' | 'rename'; from?: string }) => void
   /** 下载处理器（fallback/错误节点下载钮用；缺省=提示文案 only） */
@@ -36,6 +56,18 @@ export interface PreviewOptions {
   ensureApps?: (entry: { name: string; mime?: string; size?: number }) => Promise<void>
   /** 下载总闸（缺省 true）：false 时 fallback 与错误节点均不出下载钮 */
   canDownload?: boolean
+  /**
+   * 大文件确认 UI（Lane G4 确认档，CONFIRM < size ≤ REJECT 时询问）：true=继续渲染，false=取消本次 open。
+   * 缺省=确认档直接放行——默认策略：宿主未注入确认 UI 时不得把中型文件变成死路（向后兼容：
+   * 既有宿主升级 SDK 后行为不变，大文件防护只在其显式接线时收紧）。
+   */
+  confirmLargeFile?: (entry: S3ObjectSummary, sizeBytes: number) => Promise<boolean>
+  /**
+   * 打开链接管通知（Lane H1 预览 tab 条所需最小暴露）：open 链过闸并接管容器（含大文件拒绝节点）
+   * 时以 entry 通知——「open 链成功」的权威信号；被暂缓/取消/被新链接管的链不触发（零半更新同步）。
+   * 渲染随后失败也照常通知（错误节点同样是接管态，tab 重试链自洽）。
+   */
+  onOpened?: (entry: S3ObjectSummary) => void
 }
 
 export interface PreviewOpenOptions {
@@ -44,7 +76,8 @@ export interface PreviewOpenOptions {
 }
 
 export interface PreviewHandle {
-  /** 打开/切换文件；旧实例先过 beforeDispose gate 再 dispose。registry 无命中→fallback 下载提示；
+  /** 打开/切换文件；先过大文件尺寸闸（Lane G4：>REJECT 拒绝节点 / 确认档取消——均状态零变更），
+   *  再过 beforeDispose gate 后 dispose 旧实例。registry 无命中→fallback 下载提示；
    *  渲染失败/超时→错误节点。被暂缓（gate=false）时本链不生效（状态零变更） */
   open(entry: S3ObjectSummary, openOpts?: PreviewOpenOptions): Promise<void>
   /** 关闭当前预览（走 gate）；返回是否真的关闭，false=被 beforeDispose 暂缓 */
@@ -61,7 +94,8 @@ export interface PreviewHandle {
 type RenderOutcome = { status: 'ok'; instance: AppInstance | null } | { status: 'failed'; error: unknown }
 
 export function createPreview(opts: PreviewOptions): PreviewHandle {
-  const { container, registry, datasource, t, theme, notifyFileChanged, onDownload, ensureApps } = opts
+  const { container, registry, datasource, t, theme, notifyFileChanged, onDownload, ensureApps, confirmLargeFile, onOpened } =
+    opts
   /** 下载门：缺省 true；fallback 与错误节点下载钮共用 */
   const canDownload = opts.canDownload !== false
   let instance: AppInstance | null = null
@@ -180,6 +214,35 @@ export function createPreview(opts: PreviewOptions): PreviewHandle {
     container.appendChild(wrap)
   }
 
+  /** 大文件拒绝节点（Lane G4 拒绝档）：拒绝文案（带 limit 占位）+ 下载钮（canDownload/onDownload 双门，复用 appendDownloadButton） */
+  function renderRejectedNode(entry: S3ObjectSummary): void {
+    const wrap = document.createElement('div')
+    wrap.className = 'mmf-preview-rejected'
+    const tip = document.createElement('p')
+    tip.className = 'mmf-preview-rejected__message'
+    tip.textContent = t('largefile.rejected', { limit: formatLimit(PREVIEW_REJECT_BYTES) })
+    wrap.appendChild(tip)
+    appendDownloadButton(wrap, entry)
+    container.appendChild(wrap)
+  }
+
+  /**
+   * 容器接管（open 主链与尺寸闸拒绝档共用）：销毁旧实例（dispose 前 getState 采集）→ 清容器 → current 切换
+   * → onOpened 通知（Lane H1：接管即「open 链成功」信号，渲染成败不影响）。
+   * 前置条件：调用方已过代际校验（my === seq）与 beforeDispose gate——本函数不做任何询问。
+   */
+  function takeOver(entry: S3ObjectSummary, prev: AppInstance | null, prevKey: string | null): void {
+    instance = null
+    teardown(prev, prevKey)
+    container.innerHTML = ''
+    current = entry
+    try {
+      onOpened?.(entry)
+    } catch {
+      // 宿主回调异常不阻断渲染链
+    }
+  }
+
   /** 渲染器执行：10s 超时竞速；超时后迟到的结算 dispose 其结果并忽略（防泄漏/后台请求） */
   function runRenderer(
     def: AppDefinition,
@@ -233,15 +296,39 @@ export function createPreview(opts: PreviewOptions): PreviewHandle {
 
   async function open(entry: S3ObjectSummary, openOpts: PreviewOpenOptions = {}): Promise<void> {
     const my = ++seq
-    const prevInstance = instance
-    const prevKey = current?.key ?? null
-    const gate = await askBeforeDispose(prevInstance)
+    // ===== Lane G4 尺寸总闸（appId 路径同样生效）=====
+    // 闸序决策：先于 beforeDispose gate——「确认了却被旧实例暂缓」是体验割裂（用户为一次注定不生效的
+    // open 付出确认成本），故先裁尺寸、后问旧实例；确认档被新链接管时走代际校验整体退出。
+    // size 缺失/0（单文件模式伪条目）：无法判定，跳过本闸，下游渲染器自有上限兜底（见文件头层次注）。
+    const sizeBytes = entry.size
+    if (sizeBytes > 0) {
+      if (sizeBytes > PREVIEW_REJECT_BYTES) {
+        // 拒绝档：不取流不渲染；容器仍按常规链接管（gate→接管→拒绝节点），下载引导兜底
+        const gate = await askBeforeDispose(instance)
+        if (my !== seq) return
+        if (!gate) return // 暂缓：拒绝节点不出，旧预览完整保留
+        takeOver(entry, instance, current?.key ?? null)
+        renderRejectedNode(entry)
+        return
+      }
+      if (sizeBytes > PREVIEW_CONFIRM_BYTES && confirmLargeFile) {
+        // 确认档：仅宿主注入了确认 UI 才询问；同步抛/拒绝异常一律视为取消（宁可少渲染，不可误渲染）
+        let ok = false
+        try {
+          ok = await confirmLargeFile(entry, sizeBytes)
+        } catch {
+          ok = false
+        }
+        if (my !== seq) return // 确认挂起期间被新链/关闭接管：本链整体退出
+        if (!ok) return // 取消：保持当前预览不变（复用 beforeDispose 暂缓的「零半更新」纪律）
+      }
+      // 确认档无回调：直接放行（默认策略与理由见 PreviewOptions.confirmLargeFile 注——宿主未注入
+      // 确认 UI 时不得把中型文件变成死路，向后兼容）
+    }
+    const gate = await askBeforeDispose(instance)
     if (my !== seq) return // 已被更新的 open/close/clear/expire 接管：本链整体退出
     if (!gate) return // 暂缓：保留当前实例与容器内容，本次 open 不生效
-    instance = null
-    teardown(prevInstance, prevKey)
-    container.innerHTML = ''
-    current = entry
+    takeOver(entry, instance, current?.key ?? null)
     const fileRef = { name: entry.name, mime: entry.mime, size: entry.size }
     let def: AppDefinition | null = null
     if (openOpts.appId !== undefined) {

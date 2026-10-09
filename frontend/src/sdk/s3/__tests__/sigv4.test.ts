@@ -8,7 +8,7 @@
 import { createHash, createHmac } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import type { S3Credentials } from '../../types'
-import { encodeRfc3986, formatAmzDate, hmacSha256Sync, observeServerDate, presignGet, sha256HexSync, signRequest } from '../sigv4'
+import { encodeRfc3986, formatAmzDate, hmacSha256Sync, observeServerDate, presignGet, presignPut, sha256HexSync, signRequest } from '../sigv4'
 
 const AK_SECRET = 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY'
 /** 无 sessionToken（空串 → 不带 x-amz-security-token） */
@@ -239,6 +239,57 @@ describe('presignGet（查询串 SigV4 预签名）', () => {
     const base = { url: 'https://s3.test/bkt/k', credentials: CREDS_TOKEN, region: 'us-east-1', nowMs: T_B }
     expect(presignGet({ ...base, expiresSec: 3600 })).toBe(presignGet({ ...base, expiresSec: 3600 }))
     expect(presignGet({ ...base, expiresSec: 3600 })).not.toBe(presignGet({ ...base, expiresSec: 1200 }))
+  })
+})
+
+describe('presignPut（PUT 预签名：分享「上传链接」，与 presignGet 同构仅 method 差异）', () => {
+  const base = { url: 'https://s3.test/bkt/docs/a%20b.txt', expiresSec: 3600, credentials: CREDS_TOKEN, region: 'us-east-1', nowMs: T_B }
+
+  it('对称性：与 presignGet 输出除 X-Amz-Signature 外逐字段一致（method 参与规范化请求）', () => {
+    const getQ = new URL(presignGet(base)).searchParams
+    const putQ = new URL(presignPut(base)).searchParams
+    for (const name of ['X-Amz-Algorithm', 'X-Amz-Credential', 'X-Amz-Date', 'X-Amz-Expires', 'X-Amz-Security-Token', 'X-Amz-SignedHeaders']) {
+      expect(putQ.get(name)).toBe(getQ.get(name))
+    }
+    expect(putQ.get('X-Amz-Signature')).toMatch(/^[0-9a-f]{64}$/)
+    expect(putQ.get('X-Amz-Signature')).not.toBe(getQ.get('X-Amz-Signature'))
+  })
+
+  it('签名可复算：从 URL 自身参数按 PUT 规范用 node:crypto 独立重建签名并比对', () => {
+    const url = presignPut({ ...base, url: 'https://s3.test/bkt/p%20q/x%2By.bin', region: 'cn-test-1' })
+    const u = new URL(url)
+    const q = u.searchParams
+    const enc = (s: string): string => encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+    const pairs = Array.from(q.entries())
+      .filter(([n]) => n !== 'X-Amz-Signature')
+      .map(([n, v]) => [enc(n), enc(v)] as const)
+      .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    const canonicalRequest = [
+      'PUT',
+      u.pathname,
+      pairs.map(([n, v]) => `${n}=${v}`).join('&'),
+      `host:${u.host}\n`,
+      'host',
+      'UNSIGNED-PAYLOAD', // 预签名口径恒 UNSIGNED-PAYLOAD，无 content 头参与
+    ].join('\n')
+    const scope = q.get('X-Amz-Credential')!.split('/').slice(1).join('/')
+    const stringToSign = ['AWS4-HMAC-SHA256', q.get('X-Amz-Date')!, scope, createHash('sha256').update(canonicalRequest).digest('hex')].join('\n')
+    const hmac = (key: string | Uint8Array | Buffer, data: string): Buffer => createHmac('sha256', key).update(data).digest()
+    const [, region, service] = scope.split('/')
+    let key = hmac(`AWS4${CREDS_TOKEN.accessKeySecret}`, q.get('X-Amz-Date')!.slice(0, 8))
+    key = hmac(key, region!)
+    key = hmac(key, service!)
+    key = hmac(key, 'aws4_request')
+    expect(hmac(key, stringToSign).toString('hex')).toBe(q.get('X-Amz-Signature'))
+  })
+
+  it('契约锚：presignPut(input) ≡ presignGet({...input, method: "PUT"})（同构实现口径）', () => {
+    expect(presignPut(base)).toBe(presignGet({ ...base, method: 'PUT' }))
+  })
+
+  it('无 sessionToken → 无 X-Amz-Security-Token（与 GET 同口径）', () => {
+    const url = presignPut({ url: 'https://s3.test/bkt/k', expiresSec: 60, credentials: CREDS_NO_TOKEN, region: 'us-east-1', nowMs: T_B })
+    expect(new URL(url).searchParams.get('X-Amz-Security-Token')).toBeNull()
   })
 })
 

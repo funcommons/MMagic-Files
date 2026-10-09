@@ -96,18 +96,28 @@ function validateWorkspace(cfg: Record<string, unknown>, problems: string[]): vo
     return // backend 缺失时其子段无从校验
   }
   const b = backend as Record<string, unknown>
-  for (const key of ['endpoint', 'region', 'bucket', 'prefix'] as const) {
+  for (const key of ['endpoint', 'region', 'bucket'] as const) {
     if (!isNonEmptyString(b[key])) problems.push(`缺 backend.${key}`)
   }
+  // prefix（三审修复：放开空值）——''=bucket 根为会话域（本地连接模式合法形态）。
+  // 原非空强校验迫使 ConnectWizard 垫字面 '/'，运行时 list('/')/joinKey('/') 断裂
+  // （空前缀 Profile「测试成功、连接后树空」）。手册「prefix=会话目录域」口径不回，
+  // 空域语义与垫片收敛注释见 files/profiles.ts；手册字段表回写候 B 批。
+  if (typeof b.prefix !== 'string') problems.push('缺 backend.prefix')
 
   const credentials = b.credentials
   if (typeof credentials !== 'object' || credentials === null) {
     problems.push('缺 backend.credentials')
   } else {
     const c = credentials as Record<string, unknown>
-    for (const key of ['accessKeyId', 'accessKeySecret', 'sessionToken'] as const) {
+    // sessionToken（三审修复：放开空串）——本地长期 AK/SK 模式无 STS；sigv4 对空值
+    // 不发 x-amz-security-token 头（语义就绪）。原非空强校验迫使向导垫假 token，
+    // reload 后每请求携带伪造头，严格校验端点（AWS/OSS）403——「测试成功、连接后全挂」。
+    // 手册「STS 三要素缺一不可」口径针对宿主嵌入模式，本地模式例外回写候 B 批。
+    for (const key of ['accessKeyId', 'accessKeySecret'] as const) {
       if (!isNonEmptyString(c[key])) problems.push(`缺 backend.credentials.${key}`)
     }
+    if (typeof c.sessionToken !== 'string') problems.push('缺 backend.credentials.sessionToken')
   }
 
   // ttlSeconds 可选；提供时须为正数（0/负数/非数字均拒）

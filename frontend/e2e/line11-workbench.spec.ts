@@ -1,11 +1,14 @@
 /**
  * 业务线 11 —— 工作台交互面（Lane F5）：右键菜单（open-with）/ 拖拽上传 / 多选批量删除 /
- * UploadPanel 取消。
+ * UploadPanel 取消 / 粘贴上传（Lane G1）。
  * 期望（手册「双击/回车打开」交互模型 + §一 features）：
  *  - 行右键 → 菜单（打开/打开方式▸应用子列/重命名/删除/下载/新建目录），open-with 指定应用打开预览；
  *  - 容器 drop → queue.enqueue(当前目录) → PUT + 入树 + 上传面板终态；
  *  - ctrl 多选 → 下载批量语义启用 → 删除走多选确认（{n} 文案）→ 两对象一并 DeleteObjects；
- *  - 上传中任务取消钮可见 → 取消 → 「已取消」终态。
+ *  - 上传中任务取消钮可见 → 取消 → 「已取消」终态；
+ *  - 粘贴（clipboardData.files）→ 入队当前目录 → PUT + 传输面板终态（Lane G1）；
+ *  - 预览 Tab 条（Lane H1）：预览态原位替换 / 双击钉住 / 钉住后并存 / 点切回内容恢复（wb-06）；
+ *  - 分享生成器（Lane H-2）：选中文件 → 工具栏分享 → GET/PUT 预签名链接含 X-Amz-Signature（wb-07）。
  * （双击=打开预览由业务线 3/9 与 warmup 的 dblclick 改造覆盖，此处不重复。）
  */
 import os from 'node:os'
@@ -17,6 +20,7 @@ import {
   attachConsole,
   confirmMessageBox,
   consoleEvidence,
+  openRow,
   shot,
   toolbarButton,
   waitTreeLoaded,
@@ -133,5 +137,110 @@ test.describe('业务线11：工作台交互面（Lane F5）', () => {
     await expect(panel).toBeHidden()
     await shot(page, 'wb-04-upload-cancel-pass.png', false)
     console.log('[wb-04] console 证据：\n' + consoleEvidence(cap))
+  })
+
+  // Lane G1 粘贴上传：window 'paste'（features.upload 门控）→ clipboardData.files 入队当前目录。
+  test('wb-05：粘贴文件 → 入队当前目录 → PUT + 传输面板完成态（Lane G1）', async ({ page }) => {
+    const cap = attachConsole(page)
+    const state = await openWorkspace(page)
+
+    await page.locator('body').evaluate((body) => {
+      const dt = new DataTransfer()
+      dt.items.add(new File(['pasted via e2e clipboard'], 'pasted-clip.txt', { type: 'text/plain' }))
+      body.ownerDocument.defaultView!.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt }))
+    })
+
+    await expect
+      .poll(async () => state.putRequests.includes(`${MOCK_PREFIX}pasted-clip.txt`), { timeout: 15_000 })
+      .toBe(true)
+    await expect(page.locator('[data-testid="row"]', { hasText: 'pasted-clip.txt' })).toBeVisible({ timeout: 10_000 })
+    const panel = page.locator('[data-testid="upload-panel"]')
+    await expect(panel).toBeVisible()
+    await expect(panel.locator('[data-testid="upload-item"]', { hasText: 'pasted-clip.txt' })).toContainText('已完成')
+    await shot(page, 'wb-05-paste-upload-pass.png', false)
+    console.log('[wb-05] console 证据：\n' + consoleEvidence(cap))
+  })
+
+  // Lane H1 预览 Tab 条（OpenVSCode 预览态模型）：连开两文件 → 激活 tab 未钉住被原位替换（预览态）→
+  // 双击钉住 → 再开新文件 → 两 tab 并存 → 点回被钉 tab 内容恢复（preview.open 重跑 + savedState 回注）。
+  test('wb-06：预览 tab 条——预览态替换 / 双击钉住 / 并存 / 切回恢复（Lane H1）', async ({ page }) => {
+    const cap = attachConsole(page)
+    await openWorkspace(page)
+
+    // 首开 README.md → tab 条出现，1 个 tab 且激活
+    await openRow(page, 'README.md')
+    const tabs = page.locator('[data-testid="preview-tabs"]')
+    await expect(tabs).toBeVisible()
+    await expect(tabs.locator('[data-testid="preview-tab"]')).toHaveCount(1)
+    const readmeTab = tabs.locator('[data-testid="preview-tab"]', { hasText: 'README.md' })
+    await expect(readmeTab).toHaveClass(/is-active/)
+
+    // 再开 data.csv：激活 tab（README，未钉住）→ 原位替换（预览态），仍只有 1 个 tab
+    await openRow(page, 'data.csv')
+    await expect(page.locator('.mmagic-csv-table')).toBeVisible({ timeout: 30_000 })
+    await expect(tabs.locator('[data-testid="preview-tab"]')).toHaveCount(1)
+    await expect(tabs.locator('[data-testid="preview-tab"]', { hasText: 'data.csv' })).toHaveCount(1)
+
+    // 双击 csv tab → 钉住（图钉出现，斜体转正体）
+    const csvTab = tabs.locator('[data-testid="preview-tab"]', { hasText: 'data.csv' })
+    await csvTab.dblclick()
+    await expect(csvTab.locator('[data-testid="preview-tab-pin"]')).toBeVisible()
+
+    // 再开 notes.txt：csv 已钉住 → 追加（两 tab 并存），notes 激活
+    await openRow(page, 'notes.txt')
+    await expect(tabs.locator('[data-testid="preview-tab"]')).toHaveCount(2)
+    const notesTab = tabs.locator('[data-testid="preview-tab"]', { hasText: 'notes.txt' })
+    await expect(notesTab).toHaveClass(/is-active/)
+
+    // 点回 csv tab → 内容恢复（表格重渲染 + 激活态迁移）
+    await csvTab.click()
+    await expect(page.locator('.mmagic-csv-table')).toBeVisible({ timeout: 30_000 })
+    await expect(csvTab).toHaveClass(/is-active/)
+    await expect(page.locator('.mmagic-csv-table tbody', { hasText: 'Alice' })).toBeVisible()
+    await shot(page, 'wb-06-preview-tabs-pass.png', false)
+    console.log('[wb-06] console 证据：\n' + consoleEvidence(cap))
+  })
+
+  // Lane H-2 分享生成器：选中文件 → 工具栏「分享」→ 生成 → GET/PUT 预签名链接含 X-Amz-Signature。
+  // 查询串 SigV4 纯本地签名（client.presignedUrl 零网络），mock S3 对分享链路零感知。
+  test('wb-07：选中文件 → 分享 → GET/PUT 预签名链接生成（含 X-Amz-Signature）（Lane H-2）', async ({ page }) => {
+    const cap = attachConsole(page)
+    await openWorkspace(page)
+
+    await page.locator('[data-testid="row"]', { hasText: 'README.md' }).click()
+    await toolbarButton(page, '分享').click()
+    const dialog = page.locator('[data-testid="share-dialog"]')
+    await expect(dialog).toBeVisible()
+
+    // 默认有效期（1 小时）直接生成 → GET/PUT 两行只读链接，签名参数齐全
+    await dialog.locator('[data-testid="share-generate"]').click()
+    const getUrl = dialog.locator('[data-testid="share-get-url"]')
+    await expect(getUrl).toBeVisible()
+    const getValue = await getUrl.inputValue()
+    expect(getValue).toContain(`${MOCK_PREFIX}README.md`)
+    for (const part of ['X-Amz-Algorithm=AWS4-HMAC-SHA256', 'X-Amz-Expires=3600', 'X-Amz-SignedHeaders=host', 'X-Amz-Signature=']) {
+      expect(getValue).toContain(part)
+    }
+    const putValue = await dialog.locator('[data-testid="share-put-url"]').inputValue()
+    expect(putValue).toContain(`${MOCK_PREFIX}README.md`)
+    expect(putValue).toContain('X-Amz-Signature=')
+
+    // 换 7 天档 → 旧链接清空，再生成按新有效期；本 harness 会话 TTL=3600s，
+    // client 按口径钳制（预签名不比凭证活得久）→ X-Amz-Expires 恒 3600。
+    // 回归 #6 判责注：查询串 SigV4 为确定性 HMAC——钳制后两次签名的
+    // method/key/expires/credentials 全同源，唯一可变输入是 X-Amz-Date（秒粒度）。
+    // 同秒内重生成两链逐字节相同是正确语义（非缓存 bug），故先跨秒等待 >1s
+    // 再重生成，断言「时间进位 → 签名重算与首链不同」。
+    await dialog.locator('input[type="radio"]').nth(2).check()
+    await expect(getUrl).toBeHidden()
+    await page.waitForTimeout(1100) // 跨过 X-Amz-Date 秒粒度（确定性签名下唯一可变输入）
+    await dialog.locator('[data-testid="share-generate"]').click()
+    await expect(getUrl).toBeVisible()
+    const regenValue = await getUrl.inputValue()
+    expect(regenValue).toContain('X-Amz-Expires=3600') // TTL 钳制语义
+    expect(regenValue).not.toBe(getValue) // X-Amz-Date 进位 → 签名重算（与首链不同）
+
+    await shot(page, 'wb-07-share-dialog-pass.png', false)
+    console.log('[wb-07] console 证据：\n' + consoleEvidence(cap))
   })
 })

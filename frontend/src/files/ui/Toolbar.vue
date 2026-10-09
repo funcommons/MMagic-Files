@@ -8,6 +8,7 @@
  * Lane F3：下载按钮——features.download 门控。
  * Lane F5 多选：selected 为数组——删除按全集（>1 用多选确认文案）、重命名按首项、
  * 下载单文件直下/多文件（均非目录）批量打包语义（emit download 数组，zip 在 Home 收口）。
+ * Lane H-2：分享钮——单选文件启用 emit('share', entry)（对话框在 Home 收口）。
  */
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -44,11 +45,17 @@ const canDownload = computed(() => {
   if (s.length === 0) return false
   return s.every((e) => !e.isDir)
 })
+/** 分享可用：单选文件（目录不给分享——前缀分享列 P2；多选无单链接口径） */
+const canShare = computed(() => firstSelected.value !== null && selection.value.length === 1 && !firstSelected.value.isDir)
 
 /** 破坏性操作（删除/重命名）成功后发 changed(key)，父层据此维护选中集；Lane F5 增批量下载 */
 const emit = defineEmits<{
   changed: [key: string]
   download: [entries: S3ObjectSummary[]]
+  /** Lane G2：打开全局搜索面板（面板与数据流在 Home 收口） */
+  search: []
+  /** Lane H-2：分享选中文件（单选文件才可用；对话框在 Home 收口） */
+  share: [entry: S3ObjectSummary]
 }>()
 
 const { t } = useI18n()
@@ -93,6 +100,13 @@ function downloadSelected(): void {
   if (!canDownload.value) return
   emit('download', selection.value.filter((e) => !e.isDir))
 }
+
+/** 分享选中文件（Lane H-2）：仅单选文件；对话框实例与关闭在 Home 收口 */
+function shareSelected(): void {
+  const entry = firstSelected.value
+  if (!canShare.value || !entry) return
+  emit('share', entry)
+}
 </script>
 
 <template>
@@ -114,7 +128,20 @@ function downloadSelected(): void {
     <FcButton variant="secondary" size="sm" :loading="controller.loading" @click="refresh">
       {{ t('files.toolbar.refresh') }}
     </FcButton>
+    <FcButton variant="secondary" size="sm" data-testid="toolbar-search" @click="emit('search')">
+      {{ t('search.title') }}
+    </FcButton>
     <span class="ws-toolbar__spacer" />
+    <!-- Lane H-2 分享入口：单选文件启用；文案复用 files.menu.share（词典无 files.toolbar.share，禁改词典口径） -->
+    <FcButton
+      variant="secondary"
+      size="sm"
+      :disabled="!canShare"
+      data-testid="toolbar-share"
+      @click="shareSelected"
+    >
+      {{ t('files.menu.share') }}
+    </FcButton>
     <FcButton
       v-if="enabled.download"
       variant="secondary"

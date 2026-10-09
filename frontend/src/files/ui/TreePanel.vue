@@ -1,3 +1,16 @@
+<script lang="ts">
+/**
+ * Lane H3 分页口径（决策注释）：客户端切片分页——tree-store 的 loadDir 已按
+ * continuationToken 全量聚合写入缓存（与 e2e ws-03 聚合口径兼容），分页只是对缓存
+ * entries（dirs 前 files 后、保持既有顺序）的切片展示，翻页不重复发 S3 请求。
+ */
+/** 每页条数（导出可测）：entries 超过该值时列表底部出分页条 */
+export const TREE_PAGE_SIZE = 100
+
+/** Lane H-2 type-ahead 同键接续窗口（ms）：窗口内重复同键=跳到下一个匹配（Quantum 循环口径） */
+export const TYPE_AHEAD_WINDOW_MS = 500
+</script>
+
 <script setup lang="ts">
 /**
  * TreePanel — 当前目录列表 + 面包屑（Wave2-T2；Lane F5 交互面改版）。
@@ -9,9 +22,13 @@
  *    打开 / 打开方式（listMatches>1 时列应用名）→ emit('open-with') / 重命名/删除/下载/新建目录
  *    → emit('menu-action')（操作链在 Home 层经 workspace-ops 收口）；
  *  - 容器拖拽文件=上传 → emit('drop-files', {files, path})（enqueue+拒收 toast 在 Home 收口）；
- *  - 面包屑点击回跳；未加载/加载中 FcSkeleton、空态 FcEmpty、失败态 FcEmpty(error)+重试。
+ *  - 面包屑点击回跳；未加载/加载中 FcSkeleton、空态 FcEmpty、失败态 FcEmpty(error)+重试；
+ *  - Lane H3：entries>TREE_PAGE_SIZE 时底部出分页条（« ‹ n / total › » + 跳页输入）；
+ *  - Lane H-2 键盘流（全部收口本组件，判定纯工具在 shortcuts.ts）：Alt+↑=父目录、
+ *    Alt+↓=进首个选中目录、Esc=清空选中、字母/数字 type-ahead 循环跳转（500ms 同键接续）、
+ *    双击列表空白区=全选当前页。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { FcButton, FcContextMenu, FcEmpty, FcSkeleton } from '@/components/sdk'
 import type { MenuItem } from '@/components/sdk/overlay/FcContextMenu.vue'
@@ -19,6 +36,7 @@ import type { AppRegistry } from '@/apps/registry'
 import { normalizePrefix } from '../tree-store'
 import type { FileTreeController } from '../tree-store'
 import type { S3ObjectSummary } from '@/sdk/types'
+import { isTypingTarget, matchesHotkey } from './shortcuts'
 
 const props = defineProps<{
   controller: FileTreeController
@@ -39,8 +57,8 @@ const emit = defineEmits<{
   open: [entry: S3ObjectSummary]
   /** 「打开方式」指定应用；Home 接 preview.open(entry, { appId }) */
   'open-with': [payload: { entry: S3ObjectSummary; appId: string }]
-  /** 菜单动作（重命名/删除/下载/新建目录）；操作链在 Home 层收口 */
-  'menu-action': [payload: { action: 'rename' | 'delete' | 'download' | 'mkdir'; entry: S3ObjectSummary }]
+  /** 菜单动作（重命名/删除/下载/分享/新建目录）；操作链在 Home 层收口 */
+  'menu-action': [payload: { action: 'rename' | 'delete' | 'download' | 'share' | 'mkdir'; entry: S3ObjectSummary }]
   /** 拖拽落文件（Home 接 queue.enqueue + 拒收 toast） */
   'drop-files': [payload: { files: File[]; path: string }]
 }>()
@@ -53,6 +71,45 @@ const entries = computed<S3ObjectSummary[]>(() => {
   return b ? [...b.dirs, ...b.files] : []
 })
 const notLoaded = computed(() => !bucket.value?.loaded)
+
+// ── 客户端切片分页（Lane H3，口径见文件头 script 注释）──
+
+const page = ref(1)
+const totalPages = computed(() => Math.max(1, Math.ceil(entries.value.length / TREE_PAGE_SIZE)))
+/** 当前页可见序列：dirs+files 拼接序列的切片（与既有列表视觉顺序一致，目录与文件可同页共存） */
+const pagedEntries = computed(() =>
+  entries.value.slice((page.value - 1) * TREE_PAGE_SIZE, page.value * TREE_PAGE_SIZE),
+)
+
+/**
+ * 页码复位：目录深入/面包屑回跳/刷新（loadDir 重写 bucket）、文件变更（applyChange
+ * 原地增删条目）、props(controller) 更新——都会重建 entries 序列，统一复位到第 1 页
+ * （防越界页）；entries 变短时复位结果恒为合法页。
+ */
+watch(entries, () => {
+  page.value = 1
+})
+/** 防御：entries 变短致 totalPages 收缩时钳回合法页，绝不渲染空页 */
+watch(totalPages, (n) => {
+  if (page.value > n) page.value = n
+})
+
+/** 跳页：越界值钳到 [1, totalPages] */
+function goTo(n: number): void {
+  page.value = Math.min(Math.max(n, 1), totalPages.value)
+}
+
+/** 跳页输入草稿（type=number 时 vue v-model 可能给 number，故 string|number 双收） */
+const jumpDraft = ref<string | number>('')
+
+/** 回车确认跳页；非法值（空/非整数/<1）静默复位草稿、留在当前页 */
+function onJumpConfirm(): void {
+  const raw = String(jumpDraft.value).trim()
+  jumpDraft.value = ''
+  const n = Number(raw)
+  if (raw === '' || !Number.isInteger(n) || n < 1) return
+  goTo(n)
+}
 
 /** 选中键集（高亮判定） */
 const selectedKeys = computed(() => new Set((props.selected ?? []).map((s) => s.key)))
@@ -113,7 +170,7 @@ function retry(): void {
 let anchorIndex = -1
 
 function onRowClick(e: MouseEvent, entry: S3ObjectSummary, index: number): void {
-  const list = entries.value
+  const list = pagedEntries.value // 锚点/范围选择按当前页可见序列（v-for 下标口径一致）
   if (e.shiftKey && anchorIndex >= 0) {
     const [a, b] = anchorIndex <= index ? [anchorIndex, index] : [index, anchorIndex]
     emit('select', list.slice(a, b + 1))
@@ -139,13 +196,115 @@ function onRowDblClick(entry: S3ObjectSummary): void {
 }
 
 /** 回车：打开首个选中文件；目录=进入 */
-function onListKeydown(e: KeyboardEvent): void {
-  if (e.key !== 'Enter') return
+function openFirstSelected(e: KeyboardEvent): void {
   const first = (props.selected ?? [])[0]
   if (!first) return
   e.preventDefault()
   if (first.isDir) enter(first.key)
   else emit('open', first)
+}
+
+// ── 键盘流（Lane H-2：全部收口在本组件；组合键/焦点判定纯工具在 shortcuts.ts） ──
+
+const listEl = ref<HTMLUListElement | null>(null)
+
+/** Alt+↑：回父目录（到根即止——currentPath 已是根域则无效） */
+function goParentDir(): void {
+  const root = normalizePrefix(props.rootPrefix ?? '')
+  const cur = normalizePrefix(props.controller.currentPath)
+  if (cur === root || cur === '') return
+  const trimmed = cur.slice(0, -1) // 去尾 '/'（normalizePrefix 保证带尾 '/'；根域已被上守卫拦住）
+  enter(trimmed.slice(0, trimmed.lastIndexOf('/') + 1))
+}
+
+/** Alt+↓：进入首个选中的目录（无目录选中=无效） */
+function enterFirstSelectedDir(): void {
+  const firstDir = (props.selected ?? []).find((s) => s.isDir)
+  if (!firstDir) return
+  enter(firstDir.key)
+}
+
+/** type-ahead 状态：上次命中字符/时刻/下标（500ms 同键接续窗口，见 TYPE_AHEAD_WINDOW_MS） */
+let typeAheadChar = ''
+let typeAheadAt = 0
+let typeAheadIdx = -1
+
+/** 从 start（含）循环向后找首个 name 以 ch 开头（大小写不敏感）的条目下标；无命中=-1 */
+function findTypeAhead(start: number, ch: string): number {
+  const list = pagedEntries.value
+  for (let i = 0; i < list.length; i++) {
+    const idx = (((start + i) % list.length) + list.length) % list.length
+    if (list[idx]!.name.toLowerCase().startsWith(ch)) return idx
+  }
+  return -1
+}
+
+/** 字母/数字 type-ahead：锚点起循环跳转并选中 + 滚动到可见（jsdom 缺 scrollIntoView 走可选调用） */
+function handleTypeAhead(e: KeyboardEvent): void {
+  const list = pagedEntries.value
+  if (list.length === 0) return
+  const ch = e.key.toLowerCase()
+  const now = Date.now()
+  const chained = ch === typeAheadChar && now - typeAheadAt <= TYPE_AHEAD_WINDOW_MS && typeAheadIdx >= 0
+  const start = chained ? typeAheadIdx + 1 : Math.max(anchorIndex, 0)
+  const hit = findTypeAhead(start, ch)
+  if (hit < 0) {
+    typeAheadChar = '' // 无匹配：断链（下次重按从锚点起算），不 emit
+    return
+  }
+  typeAheadChar = ch
+  typeAheadAt = now
+  typeAheadIdx = hit
+  anchorIndex = hit // 命中行成为新锚点（shift 范围选择与下一次 type-ahead 同源）
+  emit('select', [list[hit]!])
+  const rowEl = listEl.value?.children[hit] as HTMLElement | undefined
+  rowEl?.scrollIntoView?.({ block: 'nearest' })
+}
+
+/** Esc：清空选中 + 关右键菜单（窗口级 Esc 关菜单另有既有监听，此处补列表焦点语义） */
+function clearSelection(): void {
+  menu.value = null
+  emit('select', [])
+}
+
+/** 双击列表空白区（非行，.self 口径）：全选当前页条目 */
+function onListDblClickSelf(): void {
+  if (pagedEntries.value.length === 0) return
+  emit('select', [...pagedEntries.value])
+}
+
+/**
+ * 列表键盘（Lane H-2 扩展；isTypingTarget 守卫=输入焦点一律让路；已处理键均 preventDefault）：
+ *  - Enter=打开首个选中（既有口径）；
+ *  - Alt+↑=父目录、Alt+↓=进首个选中目录；
+ *  - Esc=清空选中+关菜单；
+ *  - 字母/数字（无 ctrl/meta/alt 修饰，shift 允许）=type-ahead 循环跳转。
+ */
+function onListKeydown(e: KeyboardEvent): void {
+  if (isTypingTarget(e)) return
+  if (e.key === 'Enter') {
+    openFirstSelected(e)
+    return
+  }
+  if (matchesHotkey(e, { key: 'ArrowUp', alt: true })) {
+    e.preventDefault()
+    goParentDir()
+    return
+  }
+  if (matchesHotkey(e, { key: 'ArrowDown', alt: true })) {
+    e.preventDefault()
+    enterFirstSelectedDir()
+    return
+  }
+  if (matchesHotkey(e, { key: 'Escape' })) {
+    e.preventDefault()
+    clearSelection()
+    return
+  }
+  if (e.key.length === 1 && /[a-z0-9]/i.test(e.key) && !e.altKey && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault()
+    handleTypeAhead(e)
+  }
 }
 
 // ── 右键菜单 ──
@@ -186,6 +345,8 @@ const menuItems = computed<MenuItem[]>(() => {
   if (!m.entry.isDir && f.download !== false) {
     items.push({ value: 'download', label: t('files.menu.download'), icon: 'ri-download-2-line' })
   }
+  // Lane H-2：分享（仅文件；目录→前缀分享列 P2，简化口径不出口）
+  if (!m.entry.isDir) items.push({ value: 'share', label: t('files.menu.share'), icon: 'ri-share-line' })
   if (f.mkdir !== false) items.push({ value: 'mkdir', label: t('files.menu.mkdir'), icon: 'ri-folder-add-line' })
   return items
 })
@@ -203,7 +364,7 @@ function onMenuSelect(value: string): void {
     emit('open-with', { entry: m.entry, appId: value.slice('open-with:'.length) })
     return
   }
-  if (value === 'rename' || value === 'delete' || value === 'download' || value === 'mkdir') {
+  if (value === 'rename' || value === 'delete' || value === 'download' || value === 'share' || value === 'mkdir') {
     emit('menu-action', { action: value, entry: m.entry })
   }
 }
@@ -282,13 +443,15 @@ onMounted(() => {
     />
     <ul
       v-else
+      ref="listEl"
       class="tree-panel__list"
       tabindex="0"
       data-testid="tree-list"
       @keydown="onListKeydown"
+      @dblclick.self="onListDblClickSelf"
     >
       <li
-        v-for="(e, i) in entries"
+        v-for="(e, i) in pagedEntries"
         :key="e.key"
         class="tree-panel__row"
         :class="{ 'is-dir': e.isDir, 'is-selected': selectedKeys.has(e.key) }"
@@ -312,6 +475,61 @@ onMounted(() => {
         <span class="tree-panel__type">{{ typeOf(e) }}</span>
       </li>
     </ul>
+
+    <!-- 分页条（Lane H3）：单页不渲染；页码纯数字+斜杠（不依赖词典）；aria-label 用纯符号；
+         按钮复用 SDK 原生 button 外观类（fc-button-icon/xs=24px 方形图标钮） -->
+    <nav v-if="totalPages > 1" class="tree-panel__pager" data-testid="tree-pager">
+      <button
+        type="button"
+        class="fc-button fc-button-icon fc-button-xs tree-panel__pager-btn"
+        data-testid="tree-pager-first"
+        :disabled="page <= 1"
+        aria-label="«"
+        @click="goTo(1)"
+      >
+        <i class="ri-arrow-left-double-line" />
+      </button>
+      <button
+        type="button"
+        class="fc-button fc-button-icon fc-button-xs tree-panel__pager-btn"
+        data-testid="tree-pager-prev"
+        :disabled="page <= 1"
+        aria-label="‹"
+        @click="goTo(page - 1)"
+      >
+        <i class="ri-arrow-left-line" />
+      </button>
+      <span class="tree-panel__pager-page" data-testid="tree-pager-page">{{ page }} / {{ totalPages }}</span>
+      <button
+        type="button"
+        class="fc-button fc-button-icon fc-button-xs tree-panel__pager-btn"
+        data-testid="tree-pager-next"
+        :disabled="page >= totalPages"
+        aria-label="›"
+        @click="goTo(page + 1)"
+      >
+        <i class="ri-arrow-right-line" />
+      </button>
+      <button
+        type="button"
+        class="fc-button fc-button-icon fc-button-xs tree-panel__pager-btn"
+        data-testid="tree-pager-last"
+        :disabled="page >= totalPages"
+        aria-label="»"
+        @click="goTo(totalPages)"
+      >
+        <i class="ri-arrow-right-double-line" />
+      </button>
+      <input
+        v-model="jumpDraft"
+        type="number"
+        class="tree-panel__pager-jump"
+        data-testid="tree-pager-jump"
+        :min="1"
+        :max="totalPages"
+        @keydown.enter.prevent="onJumpConfirm"
+      >
+    </nav>
 
     <FcContextMenu
       :visible="menu !== null"
@@ -423,5 +641,57 @@ onMounted(() => {
   font-size: 12px;
   color: var(--app-text-tertiary);
   text-align: right;
+}
+
+.tree-panel__pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--app-section-border-color);
+}
+
+/* 尺寸/禁用态由全局 fc-button fc-button-icon fc-button-xs 承接（24px 方形图标钮），此处只补 hover 色 */
+.tree-panel__pager-btn {
+  &:hover:not(:disabled) {
+    color: var(--el-color-primary);
+  }
+}
+
+.tree-panel__pager-page {
+  min-width: 48px;
+  font-size: 12px;
+  color: var(--app-text-tertiary);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.tree-panel__pager-jump {
+  width: 56px;
+  height: 24px;
+  padding: 0 4px;
+  margin-left: 4px;
+  border: 1px solid var(--app-section-border-color);
+  border-radius: var(--app-radius-sm, 6px);
+  background: none;
+  color: inherit;
+  font-size: 12px;
+  text-align: center;
+
+  &:focus {
+    outline: none;
+    border-color: var(--el-color-primary);
+  }
+
+  /* 隐藏 number input 的浏览器步进钮（口径：跳页输入框无多余控件） */
+  &::-webkit-outer-spin-button,
+  &::-webkit-inner-spin-button {
+    appearance: none;
+    margin: 0;
+  }
+
+  appearance: textfield;
+  -moz-appearance: textfield;
 }
 </style>

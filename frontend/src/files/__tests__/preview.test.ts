@@ -11,6 +11,9 @@
  *     超时后迟到结算 dispose 且忽略；重试钮重跑同一 open；canDownload:false 时无下载钮
  *  5. 指定应用——open(entry, { appId })：registry.require 既有 not-found 语义，未命中=错误节点不抛裸异常
  *  6. 状态一致性——并发 open（gate 挂起期间被新链接管）无半更新
+ *  7. 大文件分级闸（Lane G4）——三档路径（≤20MB 直开 / 20-50MB 询问 / >50MB 拒绝节点+下载钮）；
+ *     回调 false/拒绝异常=取消（零半更新）；size 0/缺失（单文件伪条目）跳闸；appId 路径同样生效；
+ *     闸序=尺寸闸先于 beforeDispose gate（确认了却被旧实例暂缓是体验割裂）
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppRegistry } from '@/apps/registry'
@@ -464,5 +467,199 @@ describe('状态一致性（无半更新）', () => {
     expect(container.querySelectorAll('.mmf-preview-stage')).toHaveLength(1)
     expect(container.querySelector('.mmf-preview-stage')?.textContent).toBe('b.txt')
     expect(preview.current()).toBe(B)
+  })
+})
+
+describe('大文件分级闸（Lane G4）', () => {
+  const MB = 1024 * 1024
+  const small: S3ObjectSummary = { key: 'd/small.txt', name: 'small.txt', size: 1 * MB, isDir: false }
+  const mid: S3ObjectSummary = { key: 'd/mid.txt', name: 'mid.txt', size: 30 * MB, isDir: false }
+  const huge: S3ObjectSummary = { key: 'd/huge.txt', name: 'huge.txt', size: 60 * MB, isDir: false }
+
+  function previewWithDs(app: AppDefinition, extra: Partial<PreviewOptions> = {}) {
+    const ds = noopDatasource()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const preview = createPreview(baseOpts(container, makeRegistry(app), { datasource: ds, ...extra }))
+    return { container, preview, ds }
+  }
+
+  it('size ≤ CONFIRM → 直开（确认回调不被问）', async () => {
+    const confirm = vi.fn(async () => true)
+    const app = renderApp('app1')
+    const { container, preview } = makePreview(makeRegistry(app), { confirmLargeFile: confirm })
+    await preview.open(small)
+    expect(container.querySelector('.mmf-preview-stage')?.textContent).toBe('small.txt')
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('CONFIRM < size ≤ REJECT：回调 true → 渲染；回调收到 (entry, sizeBytes)', async () => {
+    const confirm = vi.fn(async () => true)
+    const app = renderApp('app1')
+    const { container, preview } = makePreview(makeRegistry(app), { confirmLargeFile: confirm })
+    await preview.open(mid)
+    expect(confirm).toHaveBeenCalledWith(mid, mid.size)
+    expect(container.querySelector('.mmf-preview-stage')?.textContent).toBe('mid.txt')
+    expect(preview.current()).toBe(mid)
+  })
+
+  it('回调 false → 取消本次 open（零半更新：实例不 dispose、容器与 current 保留、不渲染新内容）', async () => {
+    const inst = instanceOf()
+    const app = renderApp('app1', inst)
+    const confirm = vi.fn(async () => false)
+    const { container, preview } = makePreview(makeRegistry(app), { confirmLargeFile: confirm })
+    await preview.open(A)
+    await preview.open(mid)
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(app.renderer)).toHaveBeenCalledTimes(1) // 只有初次挂载那一次
+    expect(vi.mocked(inst.dispose)).not.toHaveBeenCalled()
+    expect(preview.current()).toBe(A)
+    expect(container.querySelector('.mmf-preview-stage')?.textContent).toBe('a.txt')
+  })
+
+  it('回调 rejected promise → 视为取消（不渲染、状态保留）', async () => {
+    const app = renderApp('app1')
+    const confirm = vi.fn(() => Promise.reject(new Error('confirm ui boom')))
+    const { container, preview } = makePreview(makeRegistry(app), { confirmLargeFile: confirm })
+    await preview.open(A)
+    await expect(preview.open(mid)).resolves.toBeUndefined() // 不向调用侧抛裸异常
+    expect(container.querySelector('.mmf-preview-stage')?.textContent).toBe('a.txt')
+    expect(preview.current()).toBe(A)
+  })
+
+  it('回调同步抛异常 → 视为取消（与 rejected 同路径）', async () => {
+    const app = renderApp('app1')
+    const confirm = vi.fn(() => {
+      throw new Error('sync boom')
+    })
+    const { container, preview } = makePreview(makeRegistry(app), { confirmLargeFile: confirm })
+    await preview.open(A)
+    await expect(preview.open(mid)).resolves.toBeUndefined()
+    expect(preview.current()).toBe(A)
+    expect(container.querySelector('.mmf-preview-stage')?.textContent).toBe('a.txt')
+  })
+
+  it('无 confirmLargeFile 回调 → 确认档直接放行（向后兼容：宿主未注入确认 UI 时不得把中型文件变成死路）', async () => {
+    const app = renderApp('app1')
+    const { container, preview } = makePreview(makeRegistry(app))
+    await preview.open(mid)
+    expect(container.querySelector('.mmf-preview-stage')?.textContent).toBe('mid.txt')
+  })
+
+  it('size 0 / 缺失（单文件模式伪条目）→ 跳闸直开（确认回调不被问）', async () => {
+    const confirm = vi.fn(async () => false)
+    const app = renderApp('app1')
+    const { container, preview } = makePreview(makeRegistry(app), { confirmLargeFile: confirm })
+    const zero: S3ObjectSummary = { key: 'd/zero.txt', name: 'zero.txt', size: 0, isDir: false }
+    await preview.open(zero)
+    expect(container.querySelector('.mmf-preview-stage')?.textContent).toBe('zero.txt')
+    const missing = { key: 'd/na.txt', name: 'na.txt', isDir: false } as S3ObjectSummary
+    await preview.open(missing)
+    expect(container.querySelector('.mmf-preview-stage')?.textContent).toBe('na.txt')
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('size > REJECT → 拒绝节点（不取流不渲染：getObject/renderer 均不触），旧实例接管销毁', async () => {
+    const inst = instanceOf()
+    const app = renderApp('app1', inst)
+    const confirm = vi.fn(async () => true)
+    const { container, preview, ds } = previewWithDs(app, { confirmLargeFile: confirm, onDownload: vi.fn() })
+    await preview.open(A)
+    const rendersBefore = vi.mocked(app.renderer).mock.calls.length
+    expect(rendersBefore).toBe(1) // 前置：A 已正常渲染
+    await preview.open(huge)
+    expect(vi.mocked(ds.getObject)).not.toHaveBeenCalled() // 不取流（renderer 本就不经 ds，超限链全程零取流）
+    expect(vi.mocked(app.renderer).mock.calls.length).toBe(rendersBefore) // 不渲染新内容
+    expect(confirm).not.toHaveBeenCalled() // 拒绝档不询问
+    expect(container.querySelector('.mmf-preview-stage')).toBeNull()
+    expect(container.querySelector('.mmf-preview-rejected')).not.toBeNull()
+    expect(vi.mocked(inst.dispose)).toHaveBeenCalledTimes(1) // 容器接管：旧实例照常销毁
+    expect(preview.current()).toBe(huge)
+  })
+
+  it('拒绝节点文案带 limit 参数（格式化 50MB），复用 t() 通道', async () => {
+    const app = renderApp('app1')
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const preview = createPreview(
+      baseOpts(container, makeRegistry(app), {
+        t: (key: string, params?: Record<string, unknown>) => (params ? `${key}?${JSON.stringify(params)}` : key),
+      }),
+    )
+    await preview.open(huge)
+    const msg = container.querySelector('.mmf-preview-rejected__message')
+    expect(msg?.textContent).toBe('largefile.rejected?{"limit":"50MB"}')
+  })
+
+  it('appId 路径同样生效：超限指定应用 → 拒绝节点（该应用 renderer 不触）；确认档指定应用 → 先问回调再渲染', async () => {
+    const def: AppDefinition = {
+      id: 'app2',
+      matcher: { ext: ['md'] }, // matcher 不含 txt——appId 指定语义
+      renderer: vi.fn((el: HTMLElement) => {
+        el.textContent = 'by-id'
+      }),
+    }
+    const confirm = vi.fn(async () => true)
+    const { container, preview } = makePreview(makeRegistry(def), { confirmLargeFile: confirm })
+    await preview.open(huge, { appId: 'app2' })
+    expect(container.querySelector('.mmf-preview-rejected')).not.toBeNull()
+    expect(vi.mocked(def.renderer)).not.toHaveBeenCalled()
+    await preview.open(mid, { appId: 'app2' })
+    expect(confirm).toHaveBeenCalledWith(mid, mid.size)
+    expect(container.querySelector('.mmf-preview-stage')?.textContent).toBe('by-id')
+  })
+
+  it('拒绝节点下载钮：canDownload/onDownload 双门（复用现有下载钮构造）', async () => {
+    const app = renderApp('app1')
+    const onDownload = vi.fn()
+    const { container, preview } = makePreview(makeRegistry(app), { onDownload })
+    await preview.open(huge)
+    const btn = container.querySelector<HTMLButtonElement>('.mmf-preview-rejected button')
+    expect(btn?.textContent).toBe('files.preview-download')
+    btn?.click()
+    expect(onDownload).toHaveBeenCalledWith(huge)
+    // 门 1：canDownload:false → 无下载钮
+    const c2 = document.createElement('div')
+    document.body.appendChild(c2)
+    const p2 = createPreview(baseOpts(c2, makeRegistry(renderApp('app1')), { onDownload, canDownload: false }))
+    await p2.open(huge)
+    expect(c2.querySelector('.mmf-preview-rejected button')).toBeNull()
+    // 门 2：无 onDownload → 无下载钮
+    const c3 = document.createElement('div')
+    document.body.appendChild(c3)
+    const p3 = createPreview(baseOpts(c3, makeRegistry(renderApp('app1'))))
+    await p3.open(huge)
+    expect(c3.querySelector('.mmf-preview-rejected button')).toBeNull()
+  })
+
+  it('闸序（尺寸闸先于 beforeDispose gate）：确认档回调 false → 连 beforeDispose 都不被问，旧实例零扰动', async () => {
+    const gate = vi.fn(() => false)
+    const inst = instanceOf({ beforeDispose: gate })
+    const app = renderApp('app1', inst)
+    const confirm = vi.fn(async () => false)
+    const { container, preview } = makePreview(makeRegistry(app), { confirmLargeFile: confirm })
+    await preview.open(A)
+    await preview.open(mid)
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(gate).not.toHaveBeenCalled() // 先确认、后 gate——避免「确认了却被旧实例暂缓」的体验割裂
+    expect(preview.current()).toBe(A)
+    expect(container.querySelector('.mmf-preview-stage')?.textContent).toBe('a.txt')
+  })
+
+  it('闸序：拒绝档/确认档放行后仍走 beforeDispose gate——false=暂缓（拒绝节点不出、旧预览保留）', async () => {
+    const gate = vi.fn(() => false)
+    const inst = instanceOf({ beforeDispose: gate })
+    const app = renderApp('app1', inst)
+    const confirm = vi.fn(async () => true)
+    const { container, preview } = makePreview(makeRegistry(app), { confirmLargeFile: confirm })
+    await preview.open(A)
+    await preview.open(huge)
+    expect(container.querySelector('.mmf-preview-rejected')).toBeNull() // 被暂缓：拒绝节点不出
+    expect(vi.mocked(inst.dispose)).not.toHaveBeenCalled()
+    expect(preview.current()).toBe(A)
+    await preview.open(mid) // 确认档：回调 true 后被 gate 暂缓
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(container.querySelector('.mmf-preview-stage')?.textContent).toBe('a.txt')
+    expect(preview.current()).toBe(A)
   })
 })

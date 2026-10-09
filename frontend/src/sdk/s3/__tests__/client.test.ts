@@ -309,3 +309,38 @@ describe('getPresignedUrl（查询串 SigV4 预签名，媒体 Range 拖动直�
     expect(Math.abs(signedMs - serverMs)).toBeLessThan(2_000)
   })
 })
+
+describe('presignPutUrl（分享「上传链接」：与 getPresignedUrl 完全同构，仅 method=PUT）', () => {
+  /** 20260101T000000Z；nowMs 注入保证签名确定性 */
+  const T = Date.UTC(2026, 0, 1, 0, 0, 0)
+
+  it('字段对称：与 GET 链接共享全部预签名参数，仅 X-Amz-Signature 不同（method 参与签名）', () => {
+    const { client } = makeClient([])
+    const get = client.getPresignedUrl('docs/a b.txt', 3600, T)
+    const put = client.presignPutUrl('docs/a b.txt', 3600, T)
+    expect(put.startsWith('https://s3.test/bkt/docs/a%20b.txt?')).toBe(true)
+    const getQ = new URL(get).searchParams
+    const putQ = new URL(put).searchParams
+    for (const name of ['X-Amz-Algorithm', 'X-Amz-Credential', 'X-Amz-Date', 'X-Amz-Expires', 'X-Amz-Security-Token', 'X-Amz-SignedHeaders']) {
+      expect(putQ.get(name)).toBe(getQ.get(name))
+    }
+    expect(putQ.get('X-Amz-Signature')).toMatch(/^[0-9a-f]{64}$/)
+    expect(putQ.get('X-Amz-Signature')).not.toBe(getQ.get('X-Amz-Signature'))
+  })
+
+  it('默认 3600s；key 路径逐段编码；零网络（与 GET 同口径）', () => {
+    const { fetcher, client } = makeClient([])
+    const put = client.presignPutUrl('a dir/b.txt', undefined, T)
+    expect(put.startsWith('https://s3.test/bkt/a%20dir/b.txt?')).toBe(true)
+    expect(new URL(put).searchParams.get('X-Amz-Expires')).toBe('3600')
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it('ttlSeconds 钳制与非法入值兜底与 getPresignedUrl 完全一致', () => {
+    const capped = new S3SigV4Client({ ...CONFIG, ttlSeconds: 600 }, vi.fn())
+    expect(new URL(capped.presignPutUrl('k', 999_999, T)).searchParams.get('X-Amz-Expires')).toBe('600')
+    const { client } = makeClient([])
+    expect(new URL(client.presignPutUrl('k', 999_999_999, T)).searchParams.get('X-Amz-Expires')).toBe('604800')
+    expect(new URL(client.presignPutUrl('k', 0, T)).searchParams.get('X-Amz-Expires')).toBe('1')
+  })
+})

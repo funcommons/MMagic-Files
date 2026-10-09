@@ -194,12 +194,11 @@ describe('parseAppConfig：workspace 缺项', () => {
     expect(detailOf(e)).toContain('缺 backend')
   })
 
-  it('backend 四要素(endpoint/region/bucket/prefix) 缺失/空串 → detail 指明缺失段', () => {
+  it('backend 三要素(endpoint/region/bucket) 缺失/空串 → detail 指明缺失段', () => {
     const cases: Record<string, unknown>[] = [
       { endpoint: '' },
       { region: '  ' },
       { bucket: undefined },
-      { prefix: '' },
     ]
     for (const override of cases) {
       const e = expectBad(() => parseBackendWith(override))
@@ -208,16 +207,29 @@ describe('parseAppConfig：workspace 缺项', () => {
     }
   })
 
+  it('prefix 放开空值（三审修复：本地连接 bucket 根形态）——缺失仍拒，空串/斜杠合法', () => {
+    // 缺失（非 string）仍拒
+    const e = expectBad(() => parseBackendWith({ prefix: undefined }))
+    expect(detailOf(e)).toContain('backend.prefix')
+    // 空串合法（''=bucket 根）；'/' 由 profiles.buildWorkspaceConfig 归一化为 ''，解析层不拒
+    expect(() => parseBackendWith({ prefix: '' })).not.toThrow()
+    expect(() => parseBackendWith({ prefix: '/' })).not.toThrow()
+  })
+
   it('缺 backend.credentials → detail 指明', () => {
     const e = expectBad(() => parseBackendWith({ credentials: undefined }))
     expect(detailOf(e)).toContain('缺 backend.credentials')
   })
 
-  it('credentials 三要素缺失/空串 → detail 指明缺失字段', () => {
-    for (const key of ['accessKeyId', 'accessKeySecret', 'sessionToken'] as const) {
+  it('credentials 双要素缺失/空串 → detail 指明缺失字段；sessionToken 放开空串（三审修复：本地 AK/SK 形态）', () => {
+    for (const key of ['accessKeyId', 'accessKeySecret'] as const) {
       const e = expectBad(() => parseCredsWith({ [key]: '' }))
       expect(detailOf(e)).toContain(`backend.credentials.${key}`)
     }
+    // sessionToken：缺失（非 string）仍拒；空串合法（sigv4 对空值不发 security-token 头）
+    const e = expectBad(() => parseCredsWith({ sessionToken: undefined }))
+    expect(detailOf(e)).toContain('backend.credentials.sessionToken')
+    expect(() => parseCredsWith({ sessionToken: '' })).not.toThrow()
   })
 
   it('security 缺失 / allowedOrigins 空数组 / 含非字符串 → detail 含 allowedOrigins', () => {

@@ -1,5 +1,6 @@
 /**
- * 业务线 5 —— 上传：setInputFiles→PutObject→uploadDone 事件；denyExts/超限拒收 toast。
+ * 业务线 5 —— 上传：setInputFiles→PutObject→uploadDone 事件；denyExts/超限拒收 toast；
+ * 重名冲突确认（Lane G1：head 探测 → ElMessageBox 覆盖/跳过）。
  * 期望（用户手册 §一）：params.uploadMaxBytes 超限前端拒收；denyExts 命中拒收；上传成功入树。
  */
 import { test, expect } from '@playwright/test'
@@ -82,5 +83,48 @@ test.describe('业务线5：上传', () => {
     expect(state.putRequests.filter((k) => k.endsWith('big.txt'))).toHaveLength(0)
     await shot(page, 'up-03-size-limit-toast-pass.png', false)
     console.log('[up-03] console 证据：\n' + consoleEvidence(cap))
+  })
+
+  // Lane G1：UI 上传显式 onConflict → 队列 head 探测重名 → ElMessageBox 三按钮（覆盖/跳过/关闭）。
+  // notes.txt 在种子中已存在（HEAD 命中）；跳过 → 不 PUT；覆盖 → PUT 覆盖 + uploadDone。
+  test('up-04：重名冲突确认 → 跳过不 PUT，覆盖后 PUT + uploadDone（Lane G1）', async ({ page }) => {
+    const cap = attachConsole(page)
+    const state = await openHostWorkspace(page)
+    const frame = floc(page)
+    const conflictKey = `${MOCK_PREFIX}notes.txt`
+
+    // ① 跳过：对话框出现（文件名冲突 + {n} 文案）→ 点「跳过」→ 无 PUT、无面板行
+    await frame.locator('[data-testid="upload-input"]').setInputFiles({
+      name: 'notes.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('conflict probe', 'utf8'),
+    })
+    const box = page.frameLocator('#mmf').locator('.el-message-box')
+    await expect(box).toBeVisible({ timeout: 10_000 })
+    await expect(box).toContainText('文件名冲突')
+    await expect(box).toContainText('同名文件')
+    await box.locator('button', { hasText: '跳过' }).click()
+    await expect(box).toBeHidden()
+    await expect.poll(async () => state.putRequests.filter((k) => k === conflictKey).length, { timeout: 5_000 }).toBe(0)
+    const panel = page.frameLocator('#mmf').locator('[data-testid="upload-panel"]')
+    await expect(panel.locator('[data-testid="upload-item"]', { hasText: 'notes.txt' })).toHaveCount(0)
+    await shot(page, 'up-04a-conflict-skip-no-put.png', false)
+
+    // ② 覆盖：同名再传 → 点「覆盖」→ PUT 覆盖 + uploadDone + 面板终态
+    await frame.locator('[data-testid="upload-input"]').setInputFiles({
+      name: 'notes.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('overwritten via e2e\n', 'utf8'),
+    })
+    await expect(page.frameLocator('#mmf').locator('.el-message-box')).toBeVisible({ timeout: 10_000 })
+    await page.frameLocator('#mmf').locator('.el-message-box__btns button.el-button--primary').click()
+    await expect.poll(async () => state.putRequests.filter((k) => k === conflictKey).length, { timeout: 15_000 }).toBe(1)
+    const evt = await findEvent(page, 'uploadDone')
+    expect(evt.payload).toMatchObject({ key: conflictKey })
+    await expect(panel.locator('[data-testid="upload-item"]', { hasText: 'notes.txt' })).toContainText('已完成', {
+      timeout: 10_000,
+    })
+    await shot(page, 'up-04b-conflict-overwrite-put-pass.png')
+    console.log('[up-04] console 证据：\n' + consoleEvidence(cap))
   })
 })

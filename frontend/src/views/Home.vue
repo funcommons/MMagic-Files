@@ -1,9 +1,10 @@
 <script setup lang="ts">
 /**
- * Home.vue — 工作台根页（Wave2-T2；Lane F3 消费层接线；Lane F5 交互面改版）。
+ * Home.vue — 工作台根页（Wave2-T2；Lane F3 消费层接线；Lane F5 交互面改版；Lane H1 预览 Tab 条；
+ * Lane H-2 分享生成器接线：Toolbar/右键菜单两入口 → 单实例 ShareDialog）。
  * !ok → 配置错误卡（保留 M0）；ok+workspace → SessionBanner+Toolbar+TreePanel+UploadPanel
- * （左树右预览，M2 换多 tab）；ok+file → 单文件预览（urlDataSource+registry 按 name 解析默认
- * 应用，F2）；boot 未注入 → M0 hero 兜底。
+ * （左树右预览，预览卡顶部 tab 条）；ok+file → 单文件预览（urlDataSource+registry 按 name 解析默认
+ * 应用，F2；不挂 tab 条）；boot 未注入 → M0 hero 兜底。
  * Lane F3：① notifyFileChanged 真接线（renderer 保存 → tree.applyChange + bus 'fileChanged'，
  * 审计 P0）；② features.download 门控；③ bus 'expired' → preview.expire()；④ ui.defaultOpen 挂载后直开。
  * Lane F5（交互模型，对齐手册「双击/回车打开」）：
@@ -13,15 +14,22 @@
  *  - 多选：selected 为数组（Toolbar 删除按全集/重命名按首项）；
  *  - 多选打包下载：>1 文件 → zip.ts（store 模式，累计 256MB 上限 toast）→ triggerDownload；
  *  - 拖拽上传：TreePanel @drop-files → trackedEnqueue（任务登记）→ 拒收 toast；
- *  - UploadPanel：上传任务面板（登记在 trackedEnqueue；状态经 queue.status 轮询同步——
- *    bus.emit 仅外发宿主、本地 handler 不触发，故 upload* 事件不能作面板数据源）。
+ *  - 粘贴上传（Lane G1）：window 'paste'（features.upload 门控）→ clipboardData.files →
+ *    trackedEnqueue 入当前目录；
+ *  - 冲突确认（Lane G1）：trackedEnqueue 显式 onConflict → ElMessageBox 三按钮（覆盖/跳过/
+ *    关闭=整批取消 4901 语义）；
+ *  - UploadPanel=传输任务中心（Lane G1 上传+下载统一）：上传任务登记在 trackedEnqueue（状态经
+ *    queue.status 轮询同步——bus.emit 仅外发宿主、本地 handler 不触发，故 upload* 事件不能作
+ *    面板数据源）；下载任务来自 DownloadQueue（reactive 列表直读）。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { inject } from 'vue'
+import { ElMessageBox } from 'element-plus'
 import { FcButton, FcSectionCard, FcTag, toast } from '@/components/sdk'
 import { usePreferenceStore } from '@/store/preference'
 import { BOOT_KEY } from '@/boot'
+import { SdkError } from '@/sdk/errorCodes'
 import { setupWorkspace } from '@/files/setup'
 import { createPreview } from '@/files/preview'
 import { normalizePrefix } from '@/files/tree-store'
@@ -30,16 +38,27 @@ import { UrlSourceProvider } from '@/sdk/url-source'
 import { resolveFeatures } from '@/sdk/features'
 import { triggerDownload } from '@/utils/download'
 import { ZIP_SIZE_LIMIT, zipStore } from '@/files/zip'
+import { DownloadQueue } from '@/files/download-queue'
 import { createWorkspaceOps } from '@/files/ui/workspace-ops'
 import SessionBanner from '@/files/ui/SessionBanner.vue'
 import { formatRemaining } from '@/files/session-format'
 import { EXPIRE_WARN_BEFORE_MS } from '@/sdk/constants'
+import SearchDialog from '@/files/ui/SearchDialog.vue'
+import ShareDialog from '@/files/ui/ShareDialog.vue'
+import StatusBar from '@/files/ui/StatusBar.vue'
+import ConnectWizard from '@/files/ui/ConnectWizard.vue'
+import { SearchIndex, createIdbMetaStore } from '@/files/search-index'
+import type { MetaRow } from '@/files/search-index'
+import { registerCommandsProvider, registerFileSearchProvider } from '@/composables/useCommandPaletteState'
 import Toolbar from '@/files/ui/Toolbar.vue'
 import TreePanel from '@/files/ui/TreePanel.vue'
 import UploadPanel from '@/files/ui/UploadPanel.vue'
 import type { UploadTaskView } from '@/files/ui/UploadPanel.vue'
+import PreviewTabs, { findTab, pickNeighbor, pinToggle, upsertTab } from '@/files/ui/PreviewTabs.vue'
+import type { PreviewTab } from '@/files/ui/PreviewTabs.vue'
 import type { PreviewHandle } from '@/files/preview'
-import type { EnqueueResult } from '@/files/upload-queue'
+import { UPLOAD_ABORTED_CODE } from '@/files/upload-queue'
+import type { ConflictEnqueueResult, EnqueueResult } from '@/files/upload-queue'
 import type { S3ObjectSummary } from '@/sdk/types'
 
 const { t } = useI18n()
@@ -77,6 +96,12 @@ function basenameOf(url: string): string {
 }
 const fileName = fileConfig ? (fileConfig.name ?? basenameOf(fileConfig.source.url)) : ''
 
+/** 字节 → 人读 MB（G4 确认档文案用；恒 MB 口径与 preview 闸阈值一致） */
+function formatMb(bytes: number): string {
+  const mb = bytes / (1024 * 1024)
+  return `${mb >= 100 ? Math.round(mb) : mb.toFixed(1)}MB`
+}
+
 /** features 门控（F1）：resolveFeatures(config.features) 传 Toolbar/TreePanel，false 隐藏对应操作入口 */
 const features = computed<Record<string, boolean>>(() =>
   boot && boot.ok ? resolveFeatures(boot.handle.config.features) : {},
@@ -88,15 +113,20 @@ const selected = ref<S3ObjectSummary[]>([])
 function onSelect(entries: S3ObjectSummary[]): void {
   selected.value = entries
 }
-/** changed(key)（删除/重命名的旧 key）：从选中集剔除 */
+/** changed(key)（删除/重命名的旧 key）：从选中集剔除；tab 历史同步剔除（残留只会 404） */
 function onChanged(key: string): void {
   selected.value = selected.value.filter((s) => s.key !== key)
+  const before = previewTabs.value.length
+  previewTabs.value = previewTabs.value.filter((t) => t.entry.key !== key)
+  if (previewTabs.value.length !== before && activeTabKey.value === key) {
+    activeTabKey.value = preview?.current()?.key ?? null
+  }
 }
 
 /** 操作链（mkdir/rename/remove/上传拒收）：Toolbar 与右键菜单共用（workspace-ops 收口） */
 const ops = ws ? createWorkspaceOps({ tree: ws.stores.tree, t }) : null
 
-// ── 上传任务面板（Lane F5）：登记（trackedEnqueue）+ bus upload* 事件同步 ──
+// ── 传输任务中心（Lane F5 上传面板 + Lane G1 下载队列/暂停恢复/冲突/粘贴） ──
 
 const uploadTasks = ref<UploadTaskView[]>([])
 /** 任务状态轮询器句柄（onBeforeUnmount 用） */
@@ -104,7 +134,7 @@ let uploadPoller: ReturnType<typeof setInterval> | null = null
 /** 轮询周期：UploadQueue 无进度/状态出站口（bus.emit 仅外发宿主），状态以轮询 status() 同步 */
 const UPLOAD_POLL_MS = 250
 
-/** 终态映射：queued/uploading 视为上传中，done/failed/aborted → 面板三态 */
+/** 终态映射：queued/uploading 视为上传中，paused → 已暂停，done/failed/aborted → 面板终态 */
 function pollUploadStatuses(): void {
   const queue = ws?.stores.queue
   if (!queue) return
@@ -114,6 +144,8 @@ function pollUploadStatuses(): void {
     if (s === 'done') {
       task.status = 'done'
       task.loaded = task.total
+    } else if (s === 'paused') {
+      task.status = 'paused'
     } else if (s === 'failed') {
       task.status = 'failed'
     } else if (s === 'aborted') {
@@ -129,7 +161,7 @@ function stopUploadPoller(): void {
   }
 }
 
-/** 全部任务到终态后自停（无上传中任务时空转无意义） */
+/** 全部任务到终态后自停（无上传中任务时空转无意义；暂停/恢复/重试入口各自 ensure 唤醒） */
 function ensureUploadPoller(): void {
   if (uploadPoller !== null) return
   uploadPoller = setInterval(() => {
@@ -139,14 +171,54 @@ function ensureUploadPoller(): void {
 }
 
 /**
- * 带任务登记的 enqueue 包装（Toolbar 上传与树拖拽共用上传口）。
+ * 冲突确认对话框（Lane G1，transfer.* 预置词典）：三按钮口径——
+ * 「覆盖」=confirm → 'overwrite'；「跳过」=cancel → 'skip'；关闭/X/Esc=整批取消 →
+ * 抛 4901（UPLOAD_ABORTED_CODE）语义，enqueue 整批不入队（trackedEnqueue 静默收场）。
+ */
+async function confirmConflict(names: string[]): Promise<'overwrite' | 'skip'> {
+  try {
+    await ElMessageBox.confirm(
+      `${t('transfer.conflict-msg', { n: names.length })} ${names.join('、')}`,
+      t('transfer.conflict-title'),
+      {
+        type: 'warning',
+        distinguishCancelAndClose: true,
+        confirmButtonText: t('transfer.conflict-overwrite'),
+        cancelButtonText: t('transfer.conflict-skip'),
+      },
+    )
+    return 'overwrite'
+  } catch (action) {
+    if (action === 'cancel') return 'skip'
+    throw new SdkError(UPLOAD_ABORTED_CODE, '用户取消上传', { names })
+  }
+}
+
+/**
+ * 带任务登记的 enqueue 包装（Toolbar 上传/树拖拽/粘贴共用上传口；Lane G1 起为异步链：
+ * 显式 onConflict → 队列 head 探测重名 → 冲突对话框裁决后落池）。
  * UploadQueue 不枚举任务且 hooks 构造期只读——id↔name 映射只能在入队点登记：
  * accepted 按文件序排列，逐个剔除 rejected 命中后对齐取 id。
+ * 拒收 toast 收口说明：Toolbar 内部 ingestFiles 依赖同步回包（异步链下恒为空批）不再触发，
+ * ext/size 拒收统一在此 resolve 后汇总提示（conflict 跳过经对话框自明，不计入 toast）。
  */
-function trackedEnqueue(files: File[], prefix?: string): EnqueueResult {
+async function trackedEnqueue(files: File[], prefix?: string): Promise<ConflictEnqueueResult> {
   const queue = ws?.stores.queue
   if (!queue || files.length === 0) return { accepted: [], rejected: [] }
-  const result = queue.enqueue(files, prefix)
+  let result: ConflictEnqueueResult
+  try {
+    result = await queue.enqueue(files, prefix, { onConflict: confirmConflict })
+  } catch (e) {
+    if (e instanceof SdkError && e.code === UPLOAD_ABORTED_CODE) {
+      return { accepted: [], rejected: [] } // 用户取消整批：静默
+    }
+    toast.error(e instanceof Error && e.message ? e.message : t('files.msg.op-failed'))
+    return { accepted: [], rejected: [] }
+  }
+  const hardRejected = result.rejected.filter((r) => r.reason !== 'conflict')
+  if (hardRejected.length > 0) {
+    toast.warning(t('files.msg.upload-rejected', { n: hardRejected.length }))
+  }
   const rejectedNames = result.rejected.map((r) => r.name)
   let ai = 0
   for (const f of files) {
@@ -162,6 +234,20 @@ function trackedEnqueue(files: File[], prefix?: string): EnqueueResult {
   return result
 }
 
+/**
+ * Toolbar 注入口（Toolbar props.queue 为同步签名 (files, prefix?) => EnqueueResult）：
+ * 登记/冲突裁决在异步链进行，同步仅回空批（Toolbar 不消费回包内容）。
+ */
+const toolbarQueue = {
+  enqueue: (files: File[], prefix?: string): EnqueueResult => {
+    void trackedEnqueue(files, prefix)
+    return { accepted: [], rejected: [] }
+  },
+}
+
+/** 下载队列（Lane G1 传输任务中心下载侧）：reactive 任务列表直供面板；file 模式无下载 */
+const downloads = ws ? new DownloadQueue({ client: ws.stores.client }) : null
+
 function onCancelUpload(id: string): void {
   if (!ws) return
   if (ws.stores.queue.abort(id)) {
@@ -171,28 +257,137 @@ function onCancelUpload(id: string): void {
   }
 }
 
-function onClearUploads(): void {
-  uploadTasks.value = uploadTasks.value.filter((x) => x.status === 'uploading')
+/** 暂停（multipart 当前分片落定后停调度；直传在途不可中断，见 upload-queue 诚实口径） */
+function onPauseUpload(id: string): void {
+  void ws?.stores.queue.pause(id)
 }
 
-// ── 预览打开链（M2 + F5 @open/@open-with） ──
+/** 继续：paused → 重新入池（multipart 复用 uploadId 断点续传） */
+function onResumeUpload(id: string): void {
+  if (ws?.stores.queue.resume(id)) {
+    const task = uploadTasks.value.find((x) => x.id === id)
+    if (task) task.status = 'uploading'
+    ensureUploadPoller()
+  }
+}
+
+/** 重试：failed → 复用 uploadId 续传（直传整重传） */
+function onRetryUpload(id: string): void {
+  if (ws?.stores.queue.retry(id)) {
+    const task = uploadTasks.value.find((x) => x.id === id)
+    if (task) task.status = 'uploading'
+    ensureUploadPoller()
+  }
+}
+
+function onClearUploads(): void {
+  uploadTasks.value = uploadTasks.value.filter((x) => x.status === 'uploading' || x.status === 'paused')
+}
+
+function onCancelDownload(id: string): void {
+  void downloads?.cancel(id)
+}
+function onRetryDownload(id: string): void {
+  void downloads?.retry(id)
+}
+function onClearDownloads(): void {
+  downloads?.clearTerminal()
+}
+
+/** 粘贴上传（Lane G1）：clipboardData.files>0 → 入队当前目录（features.upload 门控，卸载解绑） */
+function onPaste(e: ClipboardEvent): void {
+  if (!ws || features.value.upload === false) return
+  const files = Array.from(e.clipboardData?.files ?? [])
+  if (files.length === 0) return
+  e.preventDefault() // 文件粘贴由上传链接管（文本粘贴不受影响）
+  void trackedEnqueue(files, ws.stores.tree.currentPath)
+}
+
+// ── 预览打开链（M2 + F5 @open/@open-with + Lane H1 预览 Tab 条：预览态/钉住/LRU） ──
 
 const previewEl = ref<HTMLElement | null>(null)
 let preview: PreviewHandle | null = null
 /** bus 'expired' 监听解绑（onBeforeUnmount 用） */
 let offExpired: (() => void) | null = null
 
+/**
+ * Lane H1：tab 状态由 Home 持有（PreviewTabs 纯受控，语义函数收口在组件内导出）。
+ * tab=打开历史条目（单内容区不并存多渲染器；切回=preview.open 重跑+savedState 回注）。
+ */
+const previewTabs = ref<PreviewTab[]>([])
+const activeTabKey = ref<string | null>(null)
+/** onOpened 归位时关联的「打开方式」应用（最近一次 openEntry 透传；被接管的旧链不触发 onOpened，链序自洽） */
+let pendingOpenAppId: string | undefined
+/** 三审修复①：挂起的「关激活 tab→换邻位」——open 链 gate 放行（onOpened）后才移除被关 tab；
+ *  被暂缓/取消时零 tab 变更（被关 tab 保留，与「零半更新」口径一致）。 */
+let pendingCloseKey: string | null = null
+
+/** onOpened（open 链接管容器=成功信号）：tab 归位（预览态替换/追加+LRU 淘汰）→ activeKey 同步。
+ *  被暂缓/取消的 open 不触发本回调——tab 状态零变更，与预览区严格一致。 */
+function onPreviewOpened(entry: S3ObjectSummary): void {
+  if (pendingCloseKey !== null) {
+    const i = previewTabs.value.findIndex((t) => t.entry.key === pendingCloseKey)
+    if (i >= 0) previewTabs.value.splice(i, 1)
+    pendingCloseKey = null
+  }
+  upsertTab(previewTabs.value, entry, activeTabKey.value, pendingOpenAppId)
+  activeTabKey.value = entry.key
+}
+
+/** 统一打开链收口：树双击/菜单「打开」/「打开方式」/搜索打开/ui.defaultOpen 全走此口（file 模式不经此） */
+function openEntry(entry: S3ObjectSummary, appId?: string): void {
+  if (!preview) return
+  pendingOpenAppId = appId
+  void preview.open(entry, appId !== undefined ? { appId } : undefined)
+}
+
 function onOpen(entry: S3ObjectSummary): void {
-  if (preview) void preview.open(entry)
+  openEntry(entry)
 }
 
 function onOpenWith(payload: { entry: S3ObjectSummary; appId: string }): void {
-  if (preview) void preview.open(payload.entry, { appId: payload.appId })
+  openEntry(payload.entry, payload.appId)
+}
+
+/** 单击 tab=切回：preview.open（savedState 回注），复用该 tab 最近一次的应用（无则默认应用）；已激活=无操作 */
+function onTabActivate(entry: S3ObjectSummary): void {
+  if (!preview || entry.key === activeTabKey.value) return
+  openEntry(entry, findTab(previewTabs.value, entry.key)?.appId)
+}
+
+/** 双击 tab=钉住/取消钉（纯 tab 状态，不触预览链） */
+function onTabPinToggle(key: string): void {
+  pinToggle(previewTabs.value, key)
+}
+
+/** 关闭钮=关该 tab。非激活直接移除；激活中→清预览（走 gate，被暂缓则保留 tab=零半更新）并激活相邻 tab
+ *  （右邻优先，pickNeighbor 口径）；最后一个 tab 关闭后 tab 条随之隐藏（仅 tabs.length>0 渲染）。 */
+async function onTabClose(entry: S3ObjectSummary): Promise<void> {
+  const idx = previewTabs.value.findIndex((t) => t.entry.key === entry.key)
+  if (idx < 0) return
+  if (entry.key !== activeTabKey.value) {
+    previewTabs.value.splice(idx, 1)
+    return
+  }
+  const neighbor = pickNeighbor(previewTabs.value, entry.key)
+  if (!neighbor) {
+    const closed = preview ? await preview.close() : true
+    if (closed) {
+      previewTabs.value.splice(idx, 1)
+      activeTabKey.value = null
+    }
+    return
+  }
+  // 有邻位：先走 open 链（gate 裁决），成功（onOpened）后才移除被关 tab——
+  // 三审修复①：原实现先 splice 后 open，gate 暂缓时 tab 条与预览区分裂。
+  // 若此期间用户又触发其他 open（seq 接管），onOpened 消费 pendingCloseKey 仍移除被关 tab（语义不变）。
+  pendingCloseKey = entry.key
+  openEntry(neighbor.entry, neighbor.appId)
 }
 
 /** 右键菜单动作 → workspace-ops 收口（与 Toolbar 同链）；结果维护选中集 */
 async function onMenuAction(payload: {
-  action: 'rename' | 'delete' | 'download' | 'mkdir'
+  action: 'rename' | 'delete' | 'download' | 'share' | 'mkdir'
   entry: S3ObjectSummary
 }): Promise<void> {
   if (!ops) return
@@ -204,16 +399,19 @@ async function onMenuAction(payload: {
     if (keys) for (const k of keys) onChanged(k)
   } else if (payload.action === 'download') {
     void downloadEntries([payload.entry])
+  } else if (payload.action === 'share') {
+    openShare(payload.entry)
   } else {
     await ops.createDir()
   }
 }
 
-/** 拖拽落文件 → 带登记入队 + 拒收 toast（features.upload 门控：false 整链禁用，静默忽略） */
+/** 拖拽落文件 → 带登记入队 + 拒收 toast（features.upload 门控：false 整链禁用，静默忽略）。
+ *  Lane G1：trackedEnqueue 自收敛拒收 toast（异步链），不再经 ops.ingestFiles 转发。 */
 function onDropFiles(payload: { files: File[]; path: string }): void {
   if (!ws || !ops || payload.files.length === 0) return
   if (features.value.upload === false) return
-  ops.ingestFiles(trackedEnqueue, payload.files, payload.path)
+  void trackedEnqueue(payload.files, payload.path)
 }
 
 /**
@@ -227,8 +425,9 @@ async function downloadEntries(entries: S3ObjectSummary[]): Promise<void> {
   if (files.length === 0) return
   if (files.length === 1) {
     const entry = files[0]!
-    const blob = await ws.stores.client.get(entry.key).then((res) => res.blob())
-    triggerDownload(URL.createObjectURL(blob), entry.name)
+    // Lane G1：单文件下载入传输队列（get→blob→triggerDownload + 任务中心可视/取消/重试）；
+    // 多选 zip 打包仍直连（打包管线不在 DownloadQueue 职责内，见下）
+    downloads?.enqueue([entry.key])
     return
   }
   const total = files.reduce((sum, f) => sum + f.size, 0)
@@ -255,17 +454,23 @@ function zipFileName(): string {
 }
 
 onMounted(() => {
+  // Lane G1：粘贴上传（workspace 且 features.upload 开启时生效；onPaste 内部二次门控）
+  if (ws) window.addEventListener('paste', onPaste)
   if (!previewEl.value) return
   const bootHandle = boot && boot.ok ? boot.handle : null
   if (!bootHandle) return
-  // Lane F3：会话过期联动——通知式清空预览舞台（workspace 的 SessionBanner 整屏蒙层已自带）
-  offExpired = bootHandle.bus.on('expired', () => preview?.expire())
+  // Lane F3：会话过期联动——通知式清空预览舞台 + tab 历史归零（workspace 的 SessionBanner 整屏蒙层已自带）
+  offExpired = bootHandle.bus.on('expired', () => {
+    preview?.expire()
+    previewTabs.value = []
+    activeTabKey.value = null
+  })
   if (ws) {
     preview = createPreview({
       container: previewEl.value,
       registry: bootHandle.registry,
       datasource: s3DataSource(ws.stores.client),
-      t: (key) => t(key),
+      t: (key, params) => t(key, params ?? {}), // Lane G4：params 透传（largefile.rejected {limit} 插值）
       theme: {},
       // Lane F3（审计 P0）：renderer 保存 → 树缓存最小维护（applyChange）+ bus 'fileChanged' 外发宿主。
       // 树自身动作（mkdir/rename/remove）的 fileChanged 仍走 setupStores 的 onFileChanged，两链不重复。
@@ -275,17 +480,32 @@ onMounted(() => {
       },
       ensureApps: bootHandle.ensureApps,
       canDownload: features.value.download !== false,
+      // Lane H1：open 链接管容器 → tab 归位 + activeKey 同步（预览 tab 条数据源）
+      onOpened: onPreviewOpened,
+      // Lane G4 确认档接线：CONFIRM(20MB)~REJECT(50MB) 询问（关闭/取消=false=取消本次打开）
+      confirmLargeFile: async (entry, sizeBytes) => {
+        try {
+          await ElMessageBox.confirm(t('largefile.confirm', { size: formatMb(sizeBytes) }), entry.name, {
+            confirmButtonText: t('common.confirm'),
+            cancelButtonText: t('common.cancel'),
+            type: 'warning',
+          })
+          return true
+        } catch {
+          return false
+        }
+      },
       onDownload: (entry) => void downloadEntries([entry]),
     })
     // Lane F3：ui.defaultOpen——口径：相对 backend.prefix 的路径，非绝对 bucket key
     // （JSSDK §五 payload 注记①「路径类字段=相对 backend.prefix 的对象键」；手册 §一示例
     // prefix='sessions/…/' + defaultOpen='reports/summary.md'），'/' 即 prefix 根。
-    // 挂载后构造伪条目直接走预览打开链（不经树选中）；配置为空/纯 '/' 则跳过。
+    // 挂载后构造伪条目走统一打开链（Lane H1：经 tab 链，不经树选中）；配置为空/纯 '/' 则跳过。
     if (bootHandle.config.mode === 'workspace') {
       const rel = (bootHandle.config.ui?.defaultOpen ?? '').replace(/^\/+/, '')
-      if (rel && preview) {
+      if (rel) {
         const key = `${normalizePrefix(ws.rootPrefix)}${rel}`
-        void preview.open({ key, name: rel.slice(rel.lastIndexOf('/') + 1) || rel, size: 0, isDir: false })
+        openEntry({ key, name: rel.slice(rel.lastIndexOf('/') + 1) || rel, size: 0, isDir: false })
       }
     }
     return
@@ -299,7 +519,7 @@ onMounted(() => {
       container: previewEl.value,
       registry: bootHandle.registry,
       datasource: urlDataSource(provider),
-      t: (key) => t(key),
+      t: (key, params) => t(key, params ?? {}), // Lane G4：params 透传（largefile.rejected {limit} 插值）
       theme: {},
       // Lane F3（JSSDK §四）：file 模式 save 回写成功 → fileChanged(put) 外发宿主（无树可维护）。
       notifyFileChanged: (payload) => {
@@ -314,6 +534,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   offExpired?.()
   offExpired = null
+  window.removeEventListener('paste', onPaste) // Lane G1：粘贴上传解绑
   stopUploadPoller()
   if (tickTimer !== null) clearInterval(tickTimer)
   preview?.clear()
@@ -352,6 +573,81 @@ const showExpireHint = computed(() => remainingMs.value !== null && remainingMs.
 function toggleLocale() {
   preference.setLocale(preference.locale === 'zh-CN' ? 'en-US' : 'zh-CN')
 }
+
+// ── Wave G 集成：全局搜索面板（G2）/ 状态栏（G3）/ 本地连接向导（G5） ──
+
+const searchOpen = ref(false)
+const wizardOpen = ref(false)
+
+// ── Lane H-2 分享生成器：单实例对话框，Toolbar 与右键菜单两个入口共用 ──
+
+const shareOpen = ref(false)
+const shareEntry = ref<S3ObjectSummary | null>(null)
+
+/** 打开分享对话框（入口：Toolbar 分享钮 / TreePanel 右键菜单 share 项，均仅文件可达） */
+function openShare(entry: S3ObjectSummary): void {
+  shareEntry.value = entry
+  shareOpen.value = true
+}
+
+/** G2：搜索结果「打开」——构造伪条目走统一打开链（Lane H1 经 tab 链；size 0 跳过大文件闸，下游渲染器自有限额兜底） */
+function onSearchOpen(payload: { key: string }): void {
+  const key = payload.key
+  openEntry({ key, name: key.slice(key.lastIndexOf('/') + 1) || key, size: 0, isDir: false })
+}
+
+/** G2：搜索结果「定位目录」——进入其父目录（树缓存懒加载自然覆盖） */
+function onSearchLocate(payload: { key: string }): void {
+  const parent = payload.key.slice(0, payload.key.lastIndexOf('/') + 1)
+  if (parent) void ws?.stores.tree.loadDir(parent)
+}
+
+/** G3 状态栏数据源：传输中任务数（上传 uploading/paused + 下载 active） */
+const activeTransfers = computed(
+  () =>
+    uploadTasks.value.filter((x) => x.status === 'uploading' || x.status === 'paused').length +
+    (downloads?.tasks.filter((x) => x.status === 'active').length ?? 0),
+)
+/** G3 只读语义：workspace=写类 features 全显式关闭；file=无 save 段（降级可见，非报错形态） */
+const isReadonly = computed(() => {
+  if (ws) return ['upload', 'mkdir', 'rename', 'delete'].every((k) => features.value[k] === false)
+  if (fileConfig) return !fileConfig.save
+  return false
+})
+const bucketName = computed(() =>
+  boot && boot.ok && boot.handle.config.mode === 'workspace' ? boot.handle.config.backend.bucket : '',
+)
+
+// ── Lane H5 收口：命令面板双模式数据源（仅 workspace 注册；seam=useCommandPaletteState）──
+if (ws) {
+  // 文件模式：SearchIndex 元数据检索（索引起点=SearchDialog「扫描当前前缀」；未扫描=空结果，注释提示先扫描）
+  const searchIndex = new SearchIndex(createIdbMetaStore())
+  registerFileSearchProvider(async (query) => {
+    const q = query.trim()
+    if (q === '') return []
+    const rows = await searchIndex.search({ glob: q, rootPrefix: ws.rootPrefix, limit: 20 })
+    return rows.map((r: MetaRow) => ({
+      id: `file:${r.key}`,
+      label: r.name,
+      description: r.key,
+      group: 'file',
+      // 三审修复②：走统一打开链收口（直连 preview?.open 会残留 pendingOpenAppId，陈旧 appId 污染新 tab）
+      handler: () => openEntry({ key: r.key, name: r.name, size: r.size, isDir: false }),
+    }))
+  })
+  // 命令模式：工作台真实动作（新动作在此追加，自动进「最近使用」排序）
+  registerCommandsProvider(() => [
+    { id: 'cmd:search', labelKey: 'search.title', icon: 'ri-search-line', handler: () => { searchOpen.value = true } },
+    {
+      id: 'cmd:refresh',
+      labelKey: 'files.toolbar.refresh',
+      icon: 'ri-refresh-line',
+      handler: () => void ws.stores.tree.loadDir(ws.stores.tree.currentPath, { force: true }),
+    },
+    { id: 'cmd:goto-root', labelKey: 'files.tree.root', icon: 'ri-home-4-line', handler: () => void ws.stores.tree.loadDir(ws.rootPrefix) },
+    { id: 'cmd:toggle-locale', labelKey: 'home.toggle-locale', icon: 'ri-translate-2', handler: () => toggleLocale() },
+  ])
+}
 </script>
 
 <template>
@@ -360,6 +656,11 @@ function toggleLocale() {
     <FcSectionCard v-if="boot && !boot.ok" class="home-hero" padding="lg">
       <h1 class="home-hero__title">{{ t('boot.config-error') }}</h1>
       <p class="home-hero__subtitle">code={{ boot.error.code }} · {{ boot.error.message }}</p>
+      <!-- Lane G5：无 #config 时可走本地连接向导（凭据不进 URL/历史，经 sessionStorage 备份链重载） -->
+      <FcButton variant="secondary" data-testid="wizard-open" @click="wizardOpen = true">
+        {{ t('wizard.title') }}
+      </FcButton>
+      <ConnectWizard v-model:open="wizardOpen" />
     </FcSectionCard>
 
     <!-- ② workspace：会话横幅 + 操作条 + 左树右预览（M2 换多 tab）+ 上传任务面板（F5） -->
@@ -374,11 +675,13 @@ function toggleLocale() {
       <SessionBanner :session="ws.session" />
       <Toolbar
         :controller="ws.stores.tree"
-        :queue="{ enqueue: trackedEnqueue }"
+        :queue="toolbarQueue"
         :selected="selected"
         :features="features"
         @changed="onChanged"
         @download="downloadEntries"
+        @search="searchOpen = true"
+        @share="openShare"
       />
       <!-- 复审 #10：T-5min 顶部细条提示（SessionBanner 面板横幅之外的第二处提示位，手册口径） -->
       <div v-if="showExpireHint" class="ws__expire-hint" data-testid="session-top-warn">
@@ -399,10 +702,48 @@ function toggleLocale() {
           @drop-files="onDropFiles"
         />
         <FcSectionCard class="ws__preview" padding="lg">
+          <!-- Lane H1：预览 Tab 条（预览态/钉住/LRU；纯受控，状态在 Home；file 模式不挂） -->
+          <PreviewTabs
+            :tabs="previewTabs"
+            :active-key="activeTabKey"
+            @activate="onTabActivate"
+            @close="onTabClose"
+            @pin-toggle="onTabPinToggle"
+          />
           <div ref="previewEl" class="ws__preview-host" />
         </FcSectionCard>
       </div>
-      <UploadPanel :tasks="uploadTasks" @cancel="onCancelUpload" @clear="onClearUploads" />
+      <!-- Lane G1：传输任务中心（上传 + 下载统一视图；终态清除，进行中/暂停保留） -->
+      <UploadPanel
+        :tasks="uploadTasks"
+        :downloads="downloads?.tasks ?? []"
+        @pause="onPauseUpload"
+        @resume="onResumeUpload"
+        @retry="onRetryUpload"
+        @cancel="onCancelUpload"
+        @clear="onClearUploads"
+        @download-cancel="onCancelDownload"
+        @download-retry="onRetryDownload"
+        @download-clear="onClearDownloads"
+      />
+      <!-- Lane G2：全局搜索面板（扫描/过滤/打开/定位） -->
+      <SearchDialog
+        v-model:open="searchOpen"
+        :client="ws.stores.client"
+        :root-prefix="ws.rootPrefix"
+        @open="onSearchOpen"
+        @locate="onSearchLocate"
+      />
+      <!-- Lane H-2：分享链接生成器（GET/PUT 预签名；client 缺能力/目录条目=禁用态） -->
+      <ShareDialog v-model:open="shareOpen" :client="ws.stores.client" :entry="shareEntry" />
+      <!-- Lane G3：常驻状态栏（位置/传输/只读降级徽章/会话倒计时） -->
+      <StatusBar
+        :bucket="bucketName"
+        :prefix="ws.stores.tree.currentPath"
+        :transfers="activeTransfers"
+        :readonly="isReadonly"
+        :session="remainingMs !== null ? { remainingMs: remainingMs } : null"
+      />
     </div>
 
     <!-- ③ file：单文件预览（F2：registry 按 name 解析默认应用渲染；头部分名+只读/可编辑标记） -->
