@@ -93,12 +93,12 @@ export default {
   },
   app: {
     name: 'MMagic Files',
-    'markdown-too-large': 'Document too large (>5MB) — download to view',
+    'markdown-too-large': 'Document too large (>{limit}) — download to view',
     'media-load-fail': 'Media failed to load',
     'pdf-load-fail': 'Failed to load PDF',
-    'csv-too-large': 'CSV too large (>20MB) — download to view',
+    'csv-too-large': 'CSV too large (>{limit}) — download to view',
     'image-load-fail': 'Image failed to load',
-    'code-too-large': 'File too large (>5MB) — switched to read-only download mode',
+    'code-too-large': 'File too large (>{limit}) — switched to read-only download mode',
     'code-unsaved': 'You have unsaved changes. Close anyway?',
     'csv-prev': 'Previous page',
     'csv-next': 'Next page',
@@ -108,6 +108,7 @@ export default {
     'xlsx-empty': 'Empty workbook',
     'painter-save': 'Save',
     'painter-unsupported': 'Canvas painting is not supported in this environment',
+    'painter-format-hint': 'SVG will be saved as a PNG bitmap (the painter cannot write vectors); the original file will be overwritten.',
     'painter-unsaved': 'The painter has unsaved changes. Close anyway?',
     // Built-in app labelKeys (file-type plan table; consumed by the "open with" menu)
     'image-viewer': 'Image Viewer',

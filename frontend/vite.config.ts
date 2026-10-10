@@ -51,10 +51,23 @@ export default defineConfig({
           'vue-vendor': ['vue', 'vue-router', 'pinia', 'vue-i18n'],
           // UI 库
           'element-plus': ['element-plus', '@element-plus/icons-vue'],
+          // R2-06: monaco(≈4MB, 仅代码渲染器 import() 拉起) 单列命名。
+          // 此前该 chunk 默认命名为 index-*.js, 与真入口同名同前缀, 构建日志里被
+          // 误读成「主包 4.07MB」; 命名后日志自证其是懒加载 monaco, 不再混淆。
+          'monaco-editor': ['monaco-editor'],
         },
       },
     },
     // 单 chunk 报警阈值 (kB); element-plus 完整包约 1MB, 业务依赖都在此阈值之下
     chunkSizeWarningLimit: 1100,
   }
+  // ── R2-06 首载体积口径（实测 sourcemap 逐模块归因, 2026-10-10）──────────────
+  // 真入口 = index.html 加载的 index-*.js ≈293kB(全业务码+markdown-it/viewerjs/papaparse)
+  //   首载 JS ≈ 入口 293 + vue-vendor 174 + element-plus 1071 ≈ 1.54MB(gzip≈0.5MB)
+  //   → 达标「主入口 <2000kB」。>1100kB 警告的 monaco/heic2any/elk 均为按需懒加载
+  //   单体库（sourcemap 证明 monaco chunk 100% 是 monaco-editor）, 不在首载路径上,
+  //   硬拆只会把一个特性切成多个仍同批下载的碎片——保留警告作为懒 chunk 观察位。
+  // 已确认不入主包的动态重依赖: monaco/mermaid/katex/cytoscape(elk)/xlsx/pdfjs/
+  //   docx-preview/heic2any（各自独立 chunk, 见 dist/assets 清单）。
+
 })

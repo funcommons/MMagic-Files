@@ -38,4 +38,37 @@ test.describe('业务线1：boot 错误态', () => {
     await shot(page, 'boot-03-version-unsupported-pass.png')
     console.log('[boot-03] console 证据：\n' + consoleEvidence(cap))
   })
+
+  // R2-02：向导弹窗打开后，错误卡内容不得盖在弹窗/遮罩上层。
+  // 复实测判：R2 证据（probe-07b）是遮罩 ~300ms 淡入过渡中途的截图——遮罩半透明时
+  // 弹窗随层半透、错误卡透出，观感似「叠在上层」；DOM/hit-test 层序自始正确（本用例
+  // 同一轮内断言通过而截图呈「穿透」可证）。FcDialog 仍做组件级加固（overlay z-index 2500）。
+  // 断言取 hit-test 语义（elementFromPoint 遵循绘制层序）：hero 大标题中心点命中的必须是遮罩内元素。
+  test('boot-04：连接向导打开 → 遮罩在错误卡上层（z-index 达标 + hero 标题中心 hit-test 落在遮罩内）', async ({ page }) => {
+    const cap = attachConsole(page)
+    await page.goto('/')
+    await expect(page.locator('.home-hero__title')).toContainText('配置解析失败')
+    await page.locator('[data-testid="wizard-open"]').click()
+    await expect(page.locator('.el-dialog')).toBeVisible()
+    await expect(page.locator('.el-overlay')).toBeVisible()
+
+    const probe = await page.evaluate(() => {
+      const h1 = document.querySelector('.home-hero__title')
+      const overlay = document.querySelector('.el-overlay')
+      if (!h1 || !overlay) return { topInOverlay: false, overlayZ: 0, topDesc: 'missing' }
+      const r = h1.getBoundingClientRect()
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+      return {
+        topInOverlay: !!top && overlay.contains(top),
+        overlayZ: Number(getComputedStyle(overlay).zIndex) || 0,
+        topDesc: top ? `${top.tagName}.${String(top.className).slice(0, 40)}` : 'null',
+      }
+    })
+    expect(probe.overlayZ).toBeGreaterThanOrEqual(2500)
+    expect(probe.topInOverlay, `hero 标题中心命中：${probe.topDesc}`).toBe(true)
+
+    await page.waitForTimeout(500) // 等遮罩淡入过渡结束再取证（过渡中途截图=半透明「穿透」假象，见上）
+    await shot(page, 'boot-04-wizard-overlay-above-hero-pass.png', false)
+    console.log('[boot-04] console 证据：\n' + consoleEvidence(cap))
+  })
 })

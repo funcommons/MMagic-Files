@@ -735,7 +735,7 @@ describe('workspace-ops（Toolbar 与右键菜单共用操作链）', () => {
 })
 
 describe('UploadPanel', () => {
-  const task = (over: Partial<{ id: string; name: string; loaded: number; total: number; status: 'uploading' | 'done' | 'failed' | 'cancelled' }> = {}) => ({
+  const task = (over: Partial<{ id: string; name: string; loaded: number; total: number; status: 'uploading' | 'paused' | 'done' | 'failed' | 'cancelled' }> = {}) => ({
     id: 'u1',
     name: 'a.txt',
     loaded: 40,
@@ -786,6 +786,34 @@ describe('UploadPanel', () => {
     const w = mount(UploadPanel, { props: { tasks: [task({ status: 'cancelled' })] } })
     await w.find('[data-testid="upload-clear"]').trigger('click')
     expect(w.emitted('clear')).toHaveLength(1)
+    w.unmount()
+  })
+
+  // R2-10：暂停态不再渲染灰显「暂停」钮——paused 行只显 继续/取消
+  it('paused 任务：无暂停钮（R2-10），继续/取消可见；uploading 任务：暂停钮可见', async () => {
+    const w = mount(UploadPanel, {
+      props: {
+        tasks: [
+          task({ id: 'u1', status: 'paused' }),
+          task({ id: 'u2', name: 'b.txt', status: 'uploading' }),
+        ],
+      },
+    })
+    expect(w.text()).toContain('transfer.paused')
+    const items = w.findAll('[data-testid="upload-item"]')
+    expect(items).toHaveLength(2)
+    // paused 行：无暂停钮，有继续/取消
+    const pausedItem = items[0]!
+    expect(pausedItem.find('[data-testid="upload-pause"]').exists()).toBe(false)
+    expect(pausedItem.find('[data-testid="upload-resume"]').exists()).toBe(true)
+    expect(pausedItem.find('[data-testid="upload-cancel"]').exists()).toBe(true)
+    await pausedItem.find('[data-testid="upload-resume"]').trigger('click')
+    expect(w.emitted('resume')?.[0]).toEqual(['u1'])
+    // uploading 行：暂停钮可见且 emit pause(id)
+    const uploadingItem = items[1]!
+    expect(uploadingItem.find('[data-testid="upload-pause"]').exists()).toBe(true)
+    await uploadingItem.find('[data-testid="upload-pause"]').trigger('click')
+    expect(w.emitted('pause')?.[0]).toEqual(['u2'])
     w.unmount()
   })
 })

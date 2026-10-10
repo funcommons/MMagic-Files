@@ -12,7 +12,8 @@ export interface NotifySink {
 export interface AppCtxDeps {
   getObject(key: string): Promise<Blob>
   putObject(key: string, data: Blob, contentType?: string): Promise<void>
-  t(key: string): string
+  /** params 具名插值实参透传（R2-03/R2-05：渲染器超限文案 {limit}） */
+  t(key: string, params?: Record<string, unknown>): string
   theme: Record<string, string>
   /** fileChanged 出口 */
   notifyFileChanged: NotifySink
@@ -37,7 +38,8 @@ export function createAppCtx(deps: AppCtxDeps): AppCtx {
   return {
     getObject: (key) => deps.getObject(key),
     putObject: (key, data, contentType) => deps.putObject(key, data, contentType),
-    t: (key) => deps.t(key),
+    // 无 params 时保持单参调用（零可观察变化，既有 1 参 deps.t/宿主包装器不受影响）
+    t: (key, params) => (params === undefined ? deps.t(key) : deps.t(key, params)),
     theme: deps.theme,
     notify: (type, payload) => {
       deps.notifyFileChanged({ key: payload.key, action: mapNotifyAction(type), from: payload.from })

@@ -3,12 +3,14 @@
  * 被测：src/apps/renderers/painter.ts——Canvas 画板（白底 + 工具条 + 手绘 + 保存链）
  * 覆盖：挂载/工具条、底图（load 绘制 / error / getObject 拒绝→空白可画）、手绘序列与换色换宽、
  *       清空置 dirty、保存链（putObject png→notify→dirty 复位、导出失败/上传失败保持 dirty、防重入）、
+ *       保存格式降级确认（R2-08：svg/webp 等非 png|jpg|jpeg 先 confirm，取消=不保存）、
+ *       工具条 fc-button 全局类（R2-12）、
  *       beforeDispose 契约（非 dirty 放行 / confirm false / 3s 超时）、getContext null 分支、dispose 清理。
  * jsdom 注记：无 2d context→stub getContext 返回 fake ctx；toBlob/createObjectURL/revokeObjectURL 未实现→
  *       逐用例 stub；img 不真实解码→load/error 手动派发；pointer 事件用 MouseEvent 按对应类型派发。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { imagePainterRenderer, pickExportFormat } from '../painter'
+import { imagePainterRenderer, needsFormatConfirm, pickExportFormat } from '../painter'
 import type { AppInstance } from '../../../sdk/types'
 
 // ── fake 2d：与 painter.ts 触达面一一对应；calls 记录方法调用先后（stroke 序列断言锚）──
@@ -414,16 +416,98 @@ describe('pickExportFormat（保存导出 mime 纯函数）', () => {
   })
 })
 
-describe('imagePainterRenderer：保存格式保留（Lane F6）', () => {
-  /** 按指定文件名渲染（导出 mime 跟随原文件格式） */
-  async function renderNamed(name: string): Promise<{ el: HTMLElement; ctx: ReturnType<typeof makeCtx>; inst: PainterInstance }> {
-    const el = document.createElement('div')
-    const ctx = makeCtx(IMAGE_BLOB)
-    const inst = (await imagePainterRenderer(el, { key: `dir/${name}`, name, size: 7 }, ctx)) as PainterInstance
-    await flush()
-    return { el, ctx, inst }
-  }
+/** 按指定文件名渲染（导出 mime 跟随原文件格式；模块级——R2-08 与 Lane F6 两个 describe 共用） */
+async function renderNamed(name: string): Promise<{ el: HTMLElement; ctx: ReturnType<typeof makeCtx>; inst: PainterInstance }> {
+  const el = document.createElement('div')
+  const ctx = makeCtx(IMAGE_BLOB)
+  const inst = (await imagePainterRenderer(el, { key: `dir/${name}`, name, size: 7 }, ctx)) as PainterInstance
+  await flush()
+  return { el, ctx, inst }
+}
 
+describe('imagePainterRenderer：保存格式降级确认（R2-08）与工具条样式（R2-12）', () => {
+  it('svg 保存：先 confirm（app.painter-format-hint），确认后仍按 png 导出覆盖原 key', async () => {
+    const { el, ctx } = await renderNamed('c.svg')
+    drawDot(canvasOf(el), 1, 1)
+    expect(confirmSpy).not.toHaveBeenCalled() // 绘制阶段不弹
+
+    btnOf(el, 'button[data-action="save"]').click()
+    await flush()
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(confirmSpy).toHaveBeenCalledWith('app.painter-format-hint') // ctx.t 恒等回键名
+    expect(ctx.t).toHaveBeenCalledWith('app.painter-format-hint')
+    expect(toBlobMock).toHaveBeenCalledWith(expect.any(Function), 'image/png', undefined)
+    expect(ctx.putObject).toHaveBeenCalledWith('dir/c.svg', PNG_BLOB, 'image/png')
+    expect(ctx.notify).toHaveBeenCalledWith('saved', { key: 'dir/c.svg' })
+  })
+
+  it('svg 保存：confirm=false → 取消保存（toBlob/putObject/notify 不触，dirty 保持，可重问）', async () => {
+    const { el, ctx, inst } = await renderNamed('c.svg')
+    drawDot(canvasOf(el), 1, 1)
+    confirmSpy.mockReturnValue(false)
+
+    btnOf(el, 'button[data-action="save"]').click()
+    await flush()
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(toBlobMock).not.toHaveBeenCalled()
+    expect(ctx.putObject).not.toHaveBeenCalled()
+    expect(ctx.notify).not.toHaveBeenCalled()
+    expect(inst.getState()).toEqual({ dirty: true })
+
+    // 改主意后再点保存：再次询问、确认后正常走保存链
+    confirmSpy.mockReturnValue(true)
+    btnOf(el, 'button[data-action="save"]').click()
+    await flush()
+    expect(confirmSpy).toHaveBeenCalledTimes(2)
+    expect(ctx.putObject).toHaveBeenCalledTimes(1)
+  })
+
+  it('降级判定：png/jpg/jpeg 原格式保留不询问；svg/webp/gif/bmp/无扩展名均视为降级', () => {
+    for (const kept of ['a.png', 'A.PNG', 'b.jpg', 'c.jpeg']) {
+      expect(needsFormatConfirm(kept), `${kept}: 原格式保留`).toBe(false)
+    }
+    for (const downgraded of ['d.svg', 'e.webp', 'f.gif', 'g.bmp', 'noext']) {
+      expect(needsFormatConfirm(downgraded), `${downgraded}: 降级 PNG 需确认`).toBe(true)
+    }
+  })
+
+  it('webp 保存：同样先确认再导出 png（confirm 默认 true → putObject image/png）', async () => {
+    const { el, ctx } = await renderNamed('e.webp')
+    drawDot(canvasOf(el), 1, 1)
+    btnOf(el, 'button[data-action="save"]').click()
+    await flush()
+    expect(confirmSpy).toHaveBeenCalledWith('app.painter-format-hint')
+    expect(ctx.putObject).toHaveBeenCalledWith('dir/e.webp', PNG_BLOB, 'image/png')
+  })
+
+  it('png 保存：无格式降级，全程不 confirm（原格式保留路径零打扰）', async () => {
+    const { el } = await renderNamed('a.png')
+    drawDot(canvasOf(el), 1, 1)
+    btnOf(el, 'button[data-action="save"]').click()
+    await flush()
+    expect(confirmSpy).not.toHaveBeenCalled()
+  })
+
+  it('工具条按钮套 fc-button 全局类（R2-12：保存=primary、清空=outline、笔宽=outline、色板=icon）', async () => {
+    const { el } = await render()
+    const save = btnOf(el, 'button[data-action="save"]')
+    const clear = btnOf(el, 'button[data-action="clear"]')
+    const width = el.querySelector<HTMLButtonElement>('button[data-width]')!
+    const swatch = el.querySelector<HTMLButtonElement>('button[data-color]')!
+    expect(save.className).toContain('fc-button')
+    expect(save.className).toContain('fc-button-primary')
+    expect(save.className).toContain('fc-button-xs')
+    expect(clear.className).toContain('fc-button')
+    expect(clear.className).toContain('fc-button-outline')
+    expect(clear.className).toContain('fc-button-xs')
+    expect(width.className).toContain('fc-button')
+    expect(width.className).toContain('fc-button-xs')
+    expect(swatch.className).toContain('fc-button')
+    expect(swatch.className).toContain('fc-button-xs')
+  })
+})
+
+describe('imagePainterRenderer：保存格式保留（Lane F6）', () => {
   it('jpg：toBlob(image/jpeg, 0.92) 且 putObject 按 image/jpeg 覆盖原 key', async () => {
     const { el, ctx, inst } = await renderNamed('b.jpg')
     drawDot(canvasOf(el), 1, 1)

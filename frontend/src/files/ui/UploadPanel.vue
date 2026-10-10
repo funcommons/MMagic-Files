@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * UploadPanel — 传输任务中心（Lane G1：上传 + 下载统一视图；原 Lane F5 上传面板扩展）。
- * 上传行：名称/进度%/状态（上传中|已暂停|完成|失败|已取消）/操作（暂停|继续|重试|取消）；
+ * 上传行：名称/进度%/状态（上传中|已暂停|完成|失败|已取消）/操作（暂停仅上传中|继续/取消|重试）；
  * 下载行：名称/进度%（已完成文件数/总数）/状态（下载中|完成|失败|已取消）/操作（重试|取消）。
  * 任务登记与队列交互在 Home 层收口（UploadQueue 本体不枚举任务、hooks 为构造期只读），
  * 本组件纯展示：props 进、事件出（便于 jsdom mount 直测）。
@@ -121,7 +121,7 @@ function downloadPercentOf(task: DownloadTaskView): number {
         <span class="upload-panel__status" :data-status="task.status">{{ t(UPLOAD_STATUS_KEY[task.status]) }}</span>
         <span class="upload-panel__actions">
           <FcButton
-            v-if="task.status === 'uploading' || task.status === 'paused'"
+            v-if="task.status === 'uploading'"
             variant="text"
             size="sm"
             data-testid="upload-pause"
@@ -307,5 +307,21 @@ function downloadPercentOf(task: DownloadTaskView): number {
   display: flex;
   gap: 2px;
   justify-content: flex-end;
+}
+
+/* R2-01：命令面板「打开传输面板」（Home cmd:transfers）滚动定位后的短暂高亮（类由 Home 运行时添加） */
+.upload-panel.is-highlighted {
+  animation: upload-panel-highlight 2.5s ease;
+}
+
+@keyframes upload-panel-highlight {
+  0%,
+  60% {
+    box-shadow: 0 0 0 2px var(--el-color-primary, var(--brand-primary, #409eff));
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
 }
 </style>

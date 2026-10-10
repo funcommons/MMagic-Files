@@ -22,7 +22,7 @@
  *    queue.status 轮询同步——bus.emit 仅外发宿主、本地 handler 不触发，故 upload* 事件不能作
  *    面板数据源）；下载任务来自 DownloadQueue（reactive 列表直读）。
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { inject } from 'vue'
 import { ElMessageBox } from 'element-plus'
@@ -32,6 +32,7 @@ import { BOOT_KEY } from '@/boot'
 import { SdkError } from '@/sdk/errorCodes'
 import { setupWorkspace } from '@/files/setup'
 import { createPreview } from '@/files/preview'
+import { formatBytes } from '@/files/format' // R2-05：大小口径统一正本（数值+空格+单位）
 import { normalizePrefix } from '@/files/tree-store'
 import { s3DataSource, urlDataSource } from '@/apps/datasource'
 import { UrlSourceProvider } from '@/sdk/url-source'
@@ -96,11 +97,8 @@ function basenameOf(url: string): string {
 }
 const fileName = fileConfig ? (fileConfig.name ?? basenameOf(fileConfig.source.url)) : ''
 
-/** 字节 → 人读 MB（G4 确认档文案用；恒 MB 口径与 preview 闸阈值一致） */
-function formatMb(bytes: number): string {
-  const mb = bytes / (1024 * 1024)
-  return `${mb >= 100 ? Math.round(mb) : mb.toFixed(1)}MB`
-}
+// R2-05：大文件确认框 {size} 改用全仓统一 formatBytes 口径（「数值+空格+单位」，与树列/拒绝文案同源）
+// （原本地 formatMb 的「25.1MB」无空格口径已废；largefile.rejected 的 {limit} 由 preview.ts 传，X2 lane 负责）
 
 /** features 门控（F1）：resolveFeatures(config.features) 传 Toolbar/TreePanel，false 隐藏对应操作入口 */
 const features = computed<Record<string, boolean>>(() =>
@@ -174,11 +172,23 @@ function ensureUploadPoller(): void {
  * 冲突确认对话框（Lane G1，transfer.* 预置词典）：三按钮口径——
  * 「覆盖」=confirm → 'overwrite'；「跳过」=cancel → 'skip'；关闭/X/Esc=整批取消 →
  * 抛 4901（UPLOAD_ABORTED_CODE）语义，enqueue 整批不入队（trackedEnqueue 静默收场）。
+ * R2-04：ElMessageBox 放不下第三个按钮——第三态原本只由无文字的 X 承担（conflict-abort
+ * 词典键成死键），message 体补一行弱化提示「取消上传：关闭」让该语义用户可知。
  */
 async function confirmConflict(names: string[]): Promise<'overwrite' | 'skip'> {
   try {
     await ElMessageBox.confirm(
-      `${t('transfer.conflict-msg', { n: names.length })} ${names.join('、')}`,
+      h('div', null, [
+        `${t('transfer.conflict-msg', { n: names.length })} ${names.join('、')}`,
+        h(
+          'p',
+          {
+            class: 'conflict-abort-hint',
+            style: { margin: '8px 0 0', fontSize: '12px', color: 'var(--app-text-tertiary, #999)' },
+          },
+          `${t('transfer.conflict-abort')}：${t('common.close')}`,
+        ),
+      ]),
       t('transfer.conflict-title'),
       {
         type: 'warning',
@@ -292,6 +302,21 @@ function onRetryDownload(id: string): void {
 }
 function onClearDownloads(): void {
   downloads?.clearTerminal()
+}
+
+/**
+ * R2-01：命令面板「打开传输面板」（cmd:transfers）——滚动定位 + 短暂高亮；
+ * 面板未渲染（无任何任务）时以 toast 兜底告知当前无传输任务。
+ */
+function openTransferPanel(): void {
+  const el = document.querySelector('[data-testid="upload-panel"]')
+  if (!el) {
+    toast.info(t('transfer.title'))
+    return
+  }
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  el.classList.add('is-highlighted')
+  window.setTimeout(() => el.classList.remove('is-highlighted'), 2500)
 }
 
 /** 粘贴上传（Lane G1）：clipboardData.files>0 → 入队当前目录（features.upload 门控，卸载解绑） */
@@ -485,7 +510,7 @@ onMounted(() => {
       // Lane G4 确认档接线：CONFIRM(20MB)~REJECT(50MB) 询问（关闭/取消=false=取消本次打开）
       confirmLargeFile: async (entry, sizeBytes) => {
         try {
-          await ElMessageBox.confirm(t('largefile.confirm', { size: formatMb(sizeBytes) }), entry.name, {
+          await ElMessageBox.confirm(t('largefile.confirm', { size: formatBytes(sizeBytes) }), entry.name, {
             confirmButtonText: t('common.confirm'),
             cancelButtonText: t('common.cancel'),
             type: 'warning',
@@ -620,12 +645,26 @@ const bucketName = computed(() =>
 
 // ── Lane H5 收口：命令面板双模式数据源（仅 workspace 注册；seam=useCommandPaletteState）──
 if (ws) {
-  // 文件模式：SearchIndex 元数据检索（索引起点=SearchDialog「扫描当前前缀」；未扫描=空结果，注释提示先扫描）
+  // 文件模式：SearchIndex 元数据检索（索引起点=SearchDialog「扫描当前前缀」）
   const searchIndex = new SearchIndex(createIdbMetaStore())
   registerFileSearchProvider(async (query) => {
     const q = query.trim()
     if (q === '') return []
     const rows = await searchIndex.search({ glob: q, rootPrefix: ws.rootPrefix, limit: 20 })
+    // R2-07：冷启动空结果引导——索引 0 条（从未扫描/空桶）时不再裸「无匹配」回退，
+    // 返回一条引导行（label=search.index-hint、动作=打开搜索面板去「扫描当前前缀」）。
+    if (rows.length === 0 && (await searchIndex.stats()).count === 0) {
+      return [
+        {
+          id: 'hint:scan-index',
+          labelKey: 'search.index-hint',
+          description: t('search.scan'),
+          group: 'file',
+          icon: 'ri-scan-2-line',
+          handler: () => { searchOpen.value = true },
+        },
+      ]
+    }
     return rows.map((r: MetaRow) => ({
       id: `file:${r.key}`,
       label: r.name,
@@ -646,6 +685,8 @@ if (ws) {
     },
     { id: 'cmd:goto-root', labelKey: 'files.tree.root', icon: 'ri-home-4-line', handler: () => void ws.stores.tree.loadDir(ws.rootPrefix) },
     { id: 'cmd:toggle-locale', labelKey: 'home.toggle-locale', icon: 'ri-translate-2', handler: () => toggleLocale() },
+    // R2-01 顺带：传输面板入口（此前唯一入口是底部常驻面板条本身）
+    { id: 'cmd:transfers', labelKey: 'statusbar.transfers', icon: 'ri-arrow-left-right-line', handler: () => openTransferPanel() },
   ])
 }
 </script>

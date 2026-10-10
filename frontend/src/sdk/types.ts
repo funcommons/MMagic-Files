@@ -230,8 +230,8 @@ export interface AppCtx {
   /** 工作台=内层 SigV4；单文件=URL provider——装配层注入统一实现 */
   getObject(key: string): Promise<Blob>
   putObject(key: string, data: Blob, contentType?: string): Promise<void>
-  /** i18n（强制走宿主词典） */
-  t(key: string): string
+  /** i18n（强制走宿主词典；params=具名插值占位实参，如 {limit}——渲染器超限文案 R2-03/R2-05） */
+  t(key: string, params?: Record<string, unknown>): string
   /** 事件上报 → 宿主 fileChanged（'saved'|'changed'→put；'deleted'→delete；'renamed'→rename） */
   notify(type: 'saved' | 'changed' | 'deleted' | 'renamed', payload: { key: string; from?: string }): void
   /** 主题 token（CSS 变量名集） */
@@ -253,4 +253,6 @@ export interface AppDefinition {
   version?: string
   /** 要求的协议主版本（=信封 v；缺省不校验；不匹配拒载） */
   requiresSdk?: number
+  /** 渲染器字节限额（R2-03：预览闸据此取该类型实际拒绝线，避免「确认后仍拒」的双闸叠加；缺省=无渲染器级限额） */
+  maxBytes?: number
 }

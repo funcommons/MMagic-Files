@@ -103,6 +103,10 @@ test.describe('业务线5：上传', () => {
     await expect(box).toBeVisible({ timeout: 10_000 })
     await expect(box).toContainText('文件名冲突')
     await expect(box).toContainText('同名文件')
+    // R2-04：第三态「取消上传」的可见入口——message 体提示行（弱化样式）说明「关闭窗口=取消整批」
+    await expect(box.locator('.conflict-abort-hint')).toBeVisible()
+    await expect(box.locator('.conflict-abort-hint')).toContainText('取消上传')
+    await expect(box.locator('.conflict-abort-hint')).toContainText('关闭')
     await box.locator('button', { hasText: '跳过' }).click()
     await expect(box).toBeHidden()
     await expect.poll(async () => state.putRequests.filter((k) => k === conflictKey).length, { timeout: 5_000 }).toBe(0)

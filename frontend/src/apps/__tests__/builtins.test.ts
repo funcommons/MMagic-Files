@@ -19,7 +19,15 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { AppRegistry } from '../registry'
-import { BUILTIN_APP_SPECS, FALLBACK_APP_ID, registerBuiltins } from '../builtins'
+import {
+  BUILTIN_APP_SPECS,
+  CODE_MAX_BYTES,
+  CSV_TABLE_MAX_BYTES,
+  FALLBACK_APP_ID,
+  HEIC_VIEWER_MAX_BYTES,
+  MARKDOWN_MAX_BYTES,
+  registerBuiltins,
+} from '../builtins'
 import { PROTOCOL_VERSION } from '../../sdk/constants'
 import type { AppCtx, AppInstance } from '../../sdk/types'
 
@@ -92,6 +100,38 @@ describe('BUILTIN_APP_SPECS 表完整性', () => {
         expect(spec.actions, `${spec.code}: view 类不含 'edit'`).not.toContain('edit')
       }
     }
+  })
+})
+
+describe('渲染器字节限额登记（R2-03：预览闸与渲染器单一事实源）', () => {
+  const MB = 1024 * 1024
+
+  it('spec maxBytes 值：markdown=code=5MiB、csv=20MiB、heic=32MiB；其余应用不登记（undefined）', () => {
+    const byCode = new Map(BUILTIN_APP_SPECS.map((s) => [s.code, s]))
+    expect(byCode.get('markdown-renderer')?.maxBytes).toBe(5 * MB)
+    expect(byCode.get('code-editor')?.maxBytes).toBe(5 * MB)
+    expect(byCode.get('csv-table')?.maxBytes).toBe(20 * MB)
+    expect(byCode.get('heic-viewer')?.maxBytes).toBe(32 * MB)
+    for (const noLimit of ['image-viewer', 'image-painter', 'video-player', 'audio-player', 'pdf-viewer', 'docx-viewer', 'xlsx-viewer']) {
+      expect(byCode.get(noLimit)?.maxBytes, `${noLimit}: 不登记 maxBytes`).toBeUndefined()
+    }
+  })
+
+  it('导出常量与 spec 同源（渲染器 import 同一常量，杜绝双份字面量漂移）', () => {
+    expect(MARKDOWN_MAX_BYTES).toBe(5 * MB)
+    expect(CODE_MAX_BYTES).toBe(5 * MB)
+    expect(CSV_TABLE_MAX_BYTES).toBe(20 * MB)
+    expect(HEIC_VIEWER_MAX_BYTES).toBe(32 * MB)
+  })
+
+  it('registerBuiltins 把 spec.maxBytes 透传到 AppDefinition（预览闸读取入口）', () => {
+    const registry = new AppRegistry()
+    registerBuiltins(registry)
+    expect(registry.get('csv-table')?.maxBytes).toBe(CSV_TABLE_MAX_BYTES)
+    expect(registry.get('markdown-renderer')?.maxBytes).toBe(MARKDOWN_MAX_BYTES)
+    expect(registry.get('code-editor')?.maxBytes).toBe(CODE_MAX_BYTES)
+    expect(registry.get('heic-viewer')?.maxBytes).toBe(HEIC_VIEWER_MAX_BYTES)
+    expect(registry.get('pdf-viewer')?.maxBytes).toBeUndefined()
   })
 })
 

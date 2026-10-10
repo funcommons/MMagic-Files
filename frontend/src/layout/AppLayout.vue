@@ -1,4 +1,11 @@
 <script setup lang="ts">
+/* eslint-disable local/prefer-fc-button */
+/**
+ * ── scaffold 存量，未接线；勿在此新增功能 ──
+ * R2-01 已确证：router/ 与 App.vue 均未挂载本组件（工作台走 Home 单页，不经路由/布局壳）。
+ * R2-09：文件内 5 处裸 <button> 的 local/prefer-fc-button 警告按文件级豁免处理，
+ * 不做 FcButton 迁移——避免向死代码继续投入；接线（若日后启用）时再整体换 FcButton。
+ */
 defineOptions({ name: 'AppLayout' })
 // AppLayout.vue — host 业务侧. 无顶部 header, 内容去 header 化:
 //   • 品牌 → sidebar 的 header slot

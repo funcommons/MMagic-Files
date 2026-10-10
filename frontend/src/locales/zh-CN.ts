@@ -93,12 +93,12 @@ export default {
   },
   app: {
     name: 'MMagic Files',
-    'markdown-too-large': '文档过大（>5MB），请下载后查看',
+    'markdown-too-large': '文档过大（>{limit}），请下载后查看',
     'media-load-fail': '媒体加载失败',
     'pdf-load-fail': 'PDF 加载失败',
-    'csv-too-large': 'CSV 过大（>20MB），请下载后查看',
+    'csv-too-large': 'CSV 过大（>{limit}），请下载后查看',
     'image-load-fail': '图片加载失败',
-    'code-too-large': '文件过大（>5MB），已切换为只读下载模式',
+    'code-too-large': '文件过大（>{limit}），已切换为只读下载模式',
     'code-unsaved': '有未保存的修改，确定关闭吗？',
     'csv-prev': '上一页',
     'csv-next': '下一页',
@@ -108,6 +108,7 @@ export default {
     'xlsx-empty': '空工作簿',
     'painter-save': '保存',
     'painter-unsupported': '当前环境不支持画板绘制',
+    'painter-format-hint': 'SVG 矢量图保存后将转为 PNG 位图（画板无法回写矢量），原文件将被覆盖。',
     'painter-unsaved': '画板有未保存的修改，确定关闭吗？',
     // —— 内置应用 labelKey（《第一期文件类型支持计划.md》应用表；「打开方式」菜单消费）——
     'image-viewer': '图片查看',

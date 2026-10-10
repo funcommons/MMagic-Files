@@ -118,7 +118,7 @@ const emit = defineEmits<{
       <span class="ptabs__name">{{ tab.entry.name }}</span>
       <button
         type="button"
-        class="ptabs__close"
+        class="ptabs__close fc-button fc-button-icon fc-button-xs"
         data-testid="preview-tab-close"
         :aria-label="tab.entry.name"
         @click.stop="emit('close', tab.entry)"
@@ -184,7 +184,10 @@ const emit = defineEmits<{
   color: var(--el-color-primary, var(--app-text-primary));
 }
 
-.ptabs__close {
+/* 关闭钮（R2-09）：挂 SDK fc-button fc-button-icon fc-button-xs 类（与 TreePanel 同口径）。
+   SDK 尺寸体系最小 24px，tab 内规格是 16px——全局 button.fc-button-icon.fc-button-xs
+   特异性 (0,3,1)，这里用 .ptabs__tab 前缀 + 双类压到 (0,4,0) 钉死紧凑规格。 */
+.ptabs__tab .ptabs__close.ptabs__close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -193,6 +196,7 @@ const emit = defineEmits<{
   height: 16px;
   padding: 0;
   font-size: 14px;
+  font-weight: normal;
   line-height: 1;
   color: inherit;
   cursor: pointer;
@@ -206,9 +210,9 @@ const emit = defineEmits<{
   }
 }
 
-/* 关闭钮：hover / 激活 tab 出现（VS Code 口径） */
-.ptabs__tab:hover .ptabs__close,
-.ptabs__tab.is-active .ptabs__close {
+/* 关闭钮：hover / 激活 tab 出现（VS Code 口径）；特异性须压过上块 opacity:0 (0,4,0) */
+.ptabs__tab:hover .ptabs__close.ptabs__close,
+.ptabs__tab.is-active .ptabs__close.ptabs__close {
   opacity: 1;
 }
 </style>

@@ -49,7 +49,7 @@ const emit = defineEmits<{
   locate: [payload: { key: string }]
 }>()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const index = new SearchIndex(props.storeFactory ? props.storeFactory() : createIdbMetaStore())
 
@@ -140,8 +140,9 @@ function formatSize(size: number): string {
   return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${SIZE_UNITS[i] ?? 'KB'}`
 }
 
+/** R2-14：按 i18n locale 的短格式（date+time）渲染，不再走浏览器缺省 locale（zh 环境曾显 en-US 格式） */
 function formatTime(lastModified?: number): string {
-  return lastModified === undefined ? '—' : new Date(lastModified).toLocaleString()
+  return lastModified === undefined ? '—' : new Date(lastModified).toLocaleString(locale.value, { dateStyle: 'short', timeStyle: 'short' })
 }
 
 const rootPrefix = computed(() => normalizePrefix(props.rootPrefix))

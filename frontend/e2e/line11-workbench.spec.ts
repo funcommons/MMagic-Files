@@ -243,4 +243,52 @@ test.describe('业务线11：工作台交互面（Lane F5）', () => {
     await shot(page, 'wb-07-share-dialog-pass.png', false)
     console.log('[wb-07] console 证据：\n' + consoleEvidence(cap))
   })
+
+  // R2-01（P1）⌘K 命令面板可达：mod+k 绑定上移 App.vue（原唯一绑定在死代码 AppLayout）。
+  // 顺带覆盖：R2-07 冷启动空结果引导行（索引 0 条 → search.index-hint 提示行）、
+  // cmd:transfers 命令（statusbar.transfers 词条 → 滚动定位上传面板 + 短暂高亮）。
+  test('wb-08：⌘K/Ctrl+K 唤起命令面板 → 冷索引引导行 → Esc 关闭 → 「传输任务」命令定位高亮传输面板', async ({ page }) => {
+    const cap = attachConsole(page)
+    const MOD_KEY = os.platform() === 'darwin' ? 'Meta' : 'Control'
+    // 慢上传在途 → 传输面板可见（cmd:transfers 执行后可断言高亮）
+    await openWorkspace(page, { delayPutKeys: { [`${MOCK_PREFIX}slow.txt`]: 12000 } })
+    await page.locator('[data-testid="upload-input"]').setInputFiles([
+      { name: 'quick.txt', mimeType: 'text/plain', buffer: Buffer.from('quick') },
+      { name: 'slow.txt', mimeType: 'text/plain', buffer: Buffer.from('slow payload') },
+    ])
+    const panel = page.locator('[data-testid="upload-panel"]')
+    await expect(panel).toBeVisible()
+    await expect(panel.locator('[data-testid="upload-item"]', { hasText: 'quick.txt' })).toContainText('已完成', {
+      timeout: 10_000,
+    })
+
+    // ① mod+k → 面板出现
+    await page.keyboard.press(`${MOD_KEY}+k`)
+    const paletteInput = page.locator('.fc-cp input.fc-cp__input')
+    await expect(page.locator('.fc-cp')).toBeVisible()
+    await expect(paletteInput).toBeFocused()
+
+    // ② R2-07：文件模式输入 → 索引 0 条（冷启动）→ 引导行（index-hint + 扫描动作）而非裸空态
+    await paletteInput.fill('md')
+    const hintRow = page.locator('.fc-cp__item', { hasText: '索引范围' })
+    await expect(hintRow).toBeVisible()
+    await expect(hintRow).toContainText('扫描当前前缀')
+
+    // ③ Escape 关闭
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.fc-cp')).toBeHidden()
+
+    // ④ cmd:transfers：命令模式 >传输 → 「传输任务」命令 → 回车执行 → 面板滚动定位 + 短暂高亮
+    await page.keyboard.press(`${MOD_KEY}+k`)
+    await expect(page.locator('.fc-cp')).toBeVisible()
+    await paletteInput.fill('>传输')
+    const transfersCmd = page.locator('.fc-cp__item', { hasText: '传输任务' })
+    await expect(transfersCmd).toBeVisible()
+    await page.keyboard.press('Enter')
+    await expect(page.locator('.fc-cp')).toBeHidden()
+    await expect(panel).toHaveClass(/is-highlighted/)
+
+    await shot(page, 'wb-08-command-palette-pass.png', false)
+    console.log('[wb-08] console 证据：\n' + consoleEvidence(cap))
+  })
 })

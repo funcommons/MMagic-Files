@@ -11,9 +11,12 @@
  *     超时后迟到结算 dispose 且忽略；重试钮重跑同一 open；canDownload:false 时无下载钮
  *  5. 指定应用——open(entry, { appId })：registry.require 既有 not-found 语义，未命中=错误节点不抛裸异常
  *  6. 状态一致性——并发 open（gate 挂起期间被新链接管）无半更新
- *  7. 大文件分级闸（Lane G4）——三档路径（≤20MB 直开 / 20-50MB 询问 / >50MB 拒绝节点+下载钮）；
+ *  7. 大文件分级闸（Lane G4）——三档路径（≤20MB 直开 / 20MB~实际拒绝线 询问 / >实际拒绝线 拒绝节点+下载钮）；
  *     回调 false/拒绝异常=取消（零半更新）；size 0/缺失（单文件伪条目）跳闸；appId 路径同样生效；
  *     闸序=尺寸闸先于 beforeDispose gate（确认了却被旧实例暂缓是体验割裂）
+ *  8. 渲染器限额联动（R2-03）——实际拒绝线=min(REJECT, def.maxBytes)：csv 25.1MB 直接拒不询问、
+ *     未登记 maxBytes 仍询问、maxBytes>REJECT 钳到 REJECT、maxBytes≤CONFIRM 不进确认带；
+ *     拒绝文案 limit=实际线（formatBytes 口径，R2-05）
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppRegistry } from '@/apps/registry'
@@ -588,7 +591,7 @@ describe('大文件分级闸（Lane G4）', () => {
     )
     await preview.open(huge)
     const msg = container.querySelector('.mmf-preview-rejected__message')
-    expect(msg?.textContent).toBe('largefile.rejected?{"limit":"50MB"}')
+    expect(msg?.textContent).toBe('largefile.rejected?{"limit":"50.0 MB"}') // R2-05：formatBytes 口径（数值+空格+单位）
   })
 
   it('appId 路径同样生效：超限指定应用 → 拒绝节点（该应用 renderer 不触）；确认档指定应用 → 先问回调再渲染', async () => {
@@ -661,5 +664,171 @@ describe('大文件分级闸（Lane G4）', () => {
     expect(confirm).toHaveBeenCalledTimes(1)
     expect(container.querySelector('.mmf-preview-stage')?.textContent).toBe('a.txt')
     expect(preview.current()).toBe(A)
+  })
+})
+
+describe('渲染器限额联动闸（R2-03：实际拒绝线 = min(REJECT, def.maxBytes)，确认不再白点）', () => {
+  const MB = 1024 * 1024
+  const csv25: S3ObjectSummary = { key: 'd/big.csv', name: 'big.csv', size: Math.floor(25.1 * MB), isDir: false }
+  const md63: S3ObjectSummary = { key: 'd/big.md', name: 'big.md', size: Math.floor(6.3 * MB), isDir: false }
+  const csv19: S3ObjectSummary = { key: 'd/mid.csv', name: 'mid.csv', size: 19 * MB, isDir: false }
+  const any55: S3ObjectSummary = { key: 'd/x55.bin', name: 'x55.bin', size: 55 * MB, isDir: false }
+  const any65: S3ObjectSummary = { key: 'd/x65.bin', name: 'x65.bin', size: 65 * MB, isDir: false }
+
+  function previewWithParamsT(app: AppDefinition, extra: Partial<PreviewOptions> = {}) {
+    const ds = noopDatasource()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const preview = createPreview(
+      baseOpts(container, makeRegistry(app), {
+        datasource: ds,
+        // params 序列化进文案：断言 limit 占位拿到的实参
+        t: (key: string, params?: Record<string, unknown>) => (params ? `${key}?${JSON.stringify(params)}` : key),
+        ...extra,
+      }),
+    )
+    return { container, preview, ds }
+  }
+
+  it('def.maxBytes=20MB 的 csv：25.1MB 直接拒绝节点（不询问确认、renderer/getObject 不触）', async () => {
+    const confirm = vi.fn(async () => true)
+    const app: AppDefinition = {
+      id: 'csv-table',
+      matcher: { ext: ['csv'] },
+      maxBytes: 20 * MB,
+      renderer: vi.fn((el: HTMLElement) => {
+        el.textContent = 'csv!'
+      }),
+    }
+    const { container, preview, ds } = previewWithParamsT(app, { confirmLargeFile: confirm })
+    await preview.open(csv25)
+    expect(confirm).not.toHaveBeenCalled() // 确认不再白点：maxBytes 以下根本不进确认带
+    expect(vi.mocked(ds.getObject)).not.toHaveBeenCalled()
+    expect(vi.mocked(app.renderer)).not.toHaveBeenCalled()
+    expect(container.querySelector('.mmf-preview-stage')).toBeNull()
+    expect(container.querySelector('.mmf-preview-rejected')).not.toBeNull()
+    expect(preview.current()).toBe(csv25)
+  })
+
+  it('拒绝节点文案展示实际拒绝线（maxBytes=20MB → limit "20.0 MB"，非全局 50 MB）', async () => {
+    const app: AppDefinition = {
+      id: 'csv-table',
+      matcher: { ext: ['csv'] },
+      maxBytes: 20 * MB,
+      renderer: vi.fn(),
+    }
+    const { container, preview } = previewWithParamsT(app)
+    await preview.open(csv25)
+    expect(container.querySelector('.mmf-preview-rejected__message')?.textContent).toBe(
+      'largefile.rejected?{"limit":"20.0 MB"}',
+    )
+  })
+
+  it('未登记 maxBytes 的 25MB：仍走确认档（回调 true → 正常渲染）', async () => {
+    const confirm = vi.fn(async () => true)
+    const app: AppDefinition = {
+      id: 'csv-table',
+      matcher: { ext: ['csv'] },
+      renderer: vi.fn((el: HTMLElement) => {
+        el.textContent = 'csv!'
+      }),
+    }
+    const { container, preview } = previewWithParamsT(app, { confirmLargeFile: confirm })
+    await preview.open(csv25) // 25.1MB，未登记 maxBytes → 实际拒绝线=REJECT(50MB) → 落确认带
+    expect(confirm).toHaveBeenCalledWith(csv25, csv25.size)
+    expect(container.querySelector('.mmf-preview-stage')?.textContent).toBe('csv!')
+    expect(container.querySelector('.mmf-preview-rejected')).toBeNull()
+  })
+
+  it('maxBytes ≤ CONFIRM（markdown 5MB）：6.3MB 直接拒绝、不询问（闸分层语义对齐渲染器限额）', async () => {
+    const confirm = vi.fn(async () => true)
+    const app: AppDefinition = {
+      id: 'markdown-renderer',
+      matcher: { ext: ['md'] },
+      maxBytes: 5 * MB,
+      renderer: vi.fn((el: HTMLElement) => {
+        el.textContent = 'md!'
+      }),
+    }
+    const { container, preview } = previewWithParamsT(app, { confirmLargeFile: confirm })
+    await preview.open(md63)
+    expect(confirm).not.toHaveBeenCalled()
+    expect(container.querySelector('.mmf-preview-rejected')).not.toBeNull()
+    expect(container.querySelector('.mmf-preview-rejected__message')?.textContent).toBe(
+      'largefile.rejected?{"limit":"5.0 MB"}',
+    )
+    expect(vi.mocked(app.renderer)).not.toHaveBeenCalled()
+  })
+
+  it('maxBytes 以下照常渲染：19MB csv（<20MB）不确认直接进渲染器', async () => {
+    const confirm = vi.fn(async () => true)
+    const app: AppDefinition = {
+      id: 'csv-table',
+      matcher: { ext: ['csv'] },
+      maxBytes: 20 * MB,
+      renderer: vi.fn((el: HTMLElement) => {
+        el.textContent = 'csv!'
+      }),
+    }
+    const { container, preview } = previewWithParamsT(app, { confirmLargeFile: confirm })
+    await preview.open(csv19)
+    expect(confirm).not.toHaveBeenCalled() // 19MB < 20MB 拒绝线，也 < 20MB 确认线
+    expect(container.querySelector('.mmf-preview-stage')?.textContent).toBe('csv!')
+  })
+
+  it('maxBytes > REJECT（如 60MB）：实际拒绝线取 REJECT——30MB 仍走确认带、55/65MB 拒绝且 limit "50.0 MB"', async () => {
+    const confirm = vi.fn(async () => true)
+    const app: AppDefinition = {
+      id: 'big-bin',
+      matcher: { ext: ['bin'] },
+      maxBytes: 60 * MB,
+      renderer: vi.fn((el: HTMLElement) => {
+        el.textContent = 'bin!'
+      }),
+    }
+    const { container, preview } = previewWithParamsT(app, { confirmLargeFile: confirm })
+    const any30: S3ObjectSummary = { key: 'd/x30.bin', name: 'x30.bin', size: 30 * MB, isDir: false }
+    await preview.open(any30)
+    expect(confirm).toHaveBeenCalledTimes(1) // min(50, 60)=50 → 30MB 在确认带（20,50]
+    expect(container.querySelector('.mmf-preview-stage')?.textContent).toBe('bin!')
+    await preview.open(any55) // 55MB > min(50, 60)=50 → 拒绝档（线不因 maxBytes 放大）
+    expect(confirm).toHaveBeenCalledTimes(1) // 拒绝档不询问
+    expect(container.querySelector('.mmf-preview-rejected__message')?.textContent).toBe(
+      'largefile.rejected?{"limit":"50.0 MB"}',
+    )
+    await preview.open(any65) // 65MB 同档拒绝
+    expect(container.querySelector('.mmf-preview-rejected')).not.toBeNull()
+  })
+
+  it('appId 指定路径同样吃 def.maxBytes：25.1MB 指定 csv-table → 直接拒绝（沿用 not-found 语义除外）', async () => {
+    const confirm = vi.fn(async () => true)
+    const app: AppDefinition = {
+      id: 'csv-table',
+      matcher: { ext: ['tsv'] }, // matcher 不含 csv——appId 指定语义
+      maxBytes: 20 * MB,
+      renderer: vi.fn(),
+    }
+    const { container, preview } = previewWithParamsT(app, { confirmLargeFile: confirm })
+    await preview.open(csv25, { appId: 'csv-table' })
+    expect(confirm).not.toHaveBeenCalled()
+    expect(container.querySelector('.mmf-preview-rejected')).not.toBeNull()
+    expect(vi.mocked(app.renderer)).not.toHaveBeenCalled()
+  })
+
+  it('size ≤ CONFIRM 且有 maxBytes：行为不变（直开）——闸只影响 20MB 以上区段', async () => {
+    const confirm = vi.fn(async () => true)
+    const app: AppDefinition = {
+      id: 'markdown-renderer',
+      matcher: { ext: ['md'] },
+      maxBytes: 5 * MB,
+      renderer: vi.fn((el: HTMLElement) => {
+        el.textContent = 'md!'
+      }),
+    }
+    const tiny: S3ObjectSummary = { key: 'd/a.md', name: 'a.md', size: 1 * MB, isDir: false }
+    const { container, preview } = previewWithParamsT(app, { confirmLargeFile: confirm })
+    await preview.open(tiny)
+    expect(confirm).not.toHaveBeenCalled()
+    expect(container.querySelector('.mmf-preview-stage')?.textContent).toBe('md!')
   })
 })

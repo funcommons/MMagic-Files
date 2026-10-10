@@ -177,6 +177,15 @@
 
 - G 收口即全量回归 #5；H 收口全量回归 #6（终局候令提交）
 
+### R2 修复波次（2026-10-10，用户令「修复 p0~p3」：第二轮回归 14 条全修）
+
+| Lane | 修复 | 状态 |
+| --- | --- | --- |
+| X1 面板/弹窗/传输 | R2-01 ⌘K 上移 App.vue+「打开传输面板」命令+wb-08；R2-02 改判=遮罩淡入截图假象（仍加 FcDialog zIndex=2500+boot-04 永久断言）；R2-04 冲突框第三态提示行（死键复活）；R2-07 冷启动空态引导；R2-10 暂停钮收敛；R2-14 时间本地化；R2-05 Home 侧 formatBytes 接线 | ✅ |
+| X2 渲染器/闸/格式 | R2-03 registry maxBytes→拒绝线=min(50MB,def.maxBytes)（csv/md 确认带清空，决策表留档）；R2-05 format.ts 统一口径（'25.1 MB'）；R2-08 painter svg→PNG 保存前确认；R2-12 工具条套类；R2-13 csv 网格线/表头/hover/数字右对齐；AppCtx.t 加宽 params（向后兼容） | ✅ +28 用例 |
+| X3 构建与样式 | R2-06 **改判**：4MB chunk=懒加载 monaco 误名，真入口 294kB（manualChunks 令其自证命名）；R2-09 lint 8 警→**0 错 0 警**；R2-11 真凶=index.scss 硬编码 #007AFF 压过变量→改 var(--el-color-primary) 全变量链 | ✅ |
+| **合流门禁** | typecheck 0 / vitest **1166+1skip**（80 文件）/ e2e **44/44**（+boot-04+wb-08）/ build ✓ / lint **0 错 0 警** | ✅ |
+
 ### Wave H（P1×7，H-1 四路并行 + H-2 合并 lane）
 
 | Lane | 内容 | 独占写文件 | 状态 |

@@ -123,11 +123,11 @@ describe('markdownRenderer：生命周期', () => {
     expect(el.innerHTML).toBe('')
   })
 
-  it('文本 > 5MB：不渲染正文，显示超限提示（ctx.t 值），dispose 可清空', async () => {
+  it('文本 > 5MB：不渲染正文，显示超限提示（ctx.t 带 {limit} 实参，R2-03/R2-05），dispose 可清空', async () => {
     const el = document.createElement('div')
     const big = 'x'.repeat(5 * 1024 * 1024 + 1)
     const { ctx, inst } = await render(el, big)
-    expect(ctx.t).toHaveBeenCalledWith('app.markdown-too-large')
+    expect(ctx.t).toHaveBeenCalledWith('app.markdown-too-large', { limit: '5.0 MB' })
     expect(el.querySelector('h1')).toBeNull()
     expect(el.textContent).toBe('i18n:app.markdown-too-large')
     inst.dispose()

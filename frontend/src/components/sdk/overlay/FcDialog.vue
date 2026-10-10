@@ -67,6 +67,14 @@ export interface FcDialogProps {
   destroyOnClose?: boolean
   /** 透传 ElDialog modal-class (用于自定义遮罩). 默认空 */
   modalClass?: string
+  /**
+   * 遮罩起始 z-index (透传 ElDialog zIndex). 缺省 2500——高于页内内容层最高值
+   * (FcSidePanel 2000 / FcHeader·FcContextMenu 1000), 弹窗遮罩恒在页面内容之上,
+   * 不随 EP 计数器起点漂移 (R2-02 复盘: 证据截图为遮罩淡入过渡中途的半透明假象,
+   * DOM 层序自始正确; 本项为组件级防御加固, 语义见 e2e boot-04)。
+   * 命令面板 (3000) 在其上; 遮罩内如需 popper/dropdown 请传更大 zIndex。
+   */
+  zIndex?: number
 }
 
 const props = withDefaults(defineProps<FcDialogProps>(), {
@@ -90,6 +98,7 @@ const props = withDefaults(defineProps<FcDialogProps>(), {
   appendToBody: false,
   destroyOnClose: false,
   modalClass: '',
+  zIndex: 2500,
 })
 
 const emit = defineEmits<{
@@ -184,6 +193,7 @@ function startResize(e: PointerEvent) {
     :append-to-body="appendToBody"
     :destroy-on-close="destroyOnClose"
     :modal-class="modalClass"
+    :z-index="zIndex"
     :class="dialogClassFull"
     :body-class="bodyClass"
     :style="{ height: dialogHeightStyle }"

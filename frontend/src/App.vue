@@ -19,7 +19,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { FcThemeProvider, FcCommandPalette, FcErrorBoundary } from '@/components/sdk'
 import { usePreferenceStore } from '@/store/preference'
 import { useOemStore } from '@/store/oem'
-import { useCommandPaletteState, openCommandPalette } from '@/composables'
+import { useCommandPaletteState, openCommandPalette, useKeyboardShortcut } from '@/composables'
 import i18n from '@/locales'
 import type { ThemeMode } from '@/components/sdk/theme/brands'
 
@@ -59,8 +59,11 @@ const paletteState = palette.state
 const orderedCommands = palette.orderedCommands
 
 // 命令注册 seam (registerCommandsProvider): Home 后续把真实动作 (上传/新建目录/搜索/
-// 切换语言...) 通过它注入, 打开面板时动态拉取; 本期先注册一条常驻命令 —— 面板打开
-// 快捷键 (全局绑定在 AppLayout: useKeyboardShortcut('mod+k'), 保持不变)
+// 切换语言...) 通过它注入, 打开面板时动态拉取; 本期先注册一条常驻命令 ——
+// R2-01 修复：面板唤起快捷键与面板同处挂载（原唯一绑定在从未挂载的 AppLayout，
+// 导致真实 UI 中 ⌘K/Ctrl+K 无任何入口）。
+useKeyboardShortcut('mod+k', () => openCommandPalette())
+
 const paletteKeys = /Mac|iPhone|iPad/i.test(navigator.platform) ? '⌘K' : 'Ctrl+K'
 palette.registerCommandsProvider(() => [
   {

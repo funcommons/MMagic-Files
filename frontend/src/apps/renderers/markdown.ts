@@ -6,13 +6,12 @@
  *          渲染后统一为链接补 target=_blank + rel=noopener（防 tab-nabbing）。
  * mermaid：```mermaid 围栏块渲染后动态 import('mermaid') 尝试增强；
  *          失败（jsdom/弱网）静默降级为普通代码块——绝不进模块顶层，控制 bundle 重量。
- * 超限：契约预览策略文本 > 5MB 只读提示（ctx.t('app.markdown-too-large')），不进渲染管线。
+ * 超限：契约预览策略文本 > 5MB 只读提示（ctx.t('app.markdown-too-large', {limit})），不进渲染管线。
  */
 import MarkdownIt from 'markdown-it'
+import { MARKDOWN_MAX_BYTES } from '../builtins'
+import { formatBytes } from '../../files/format'
 import type { AppCtx, AppDefinition, AppInstance } from '../../sdk/types'
-
-/** 文本类预览上限：5MB（契约预览策略；按 Blob 字节数判定，避免先读全文） */
-const MAX_BYTES = 5 * 1024 * 1024
 
 /** 超限提示 i18n 键（文案在宿主 locales 词典；键缺省时 t 回退键名） */
 const TOO_LARGE_KEY = 'app.markdown-too-large'
@@ -46,13 +45,13 @@ async function enhanceMermaid(root: HTMLElement): Promise<void> {
   }
 }
 
-/** 超限只读提示：不读全文、不进渲染管线（契约预览策略） */
+/** 超限只读提示：不读全文、不进渲染管线（契约预览策略）；{limit} 与预览闸同源 formatBytes 口径（R2-05） */
 function showTooLargeTip(el: HTMLElement, ctx: AppCtx): AppInstance {
   const tip = document.createElement('div')
   tip.className = 'markdown-too-large-tip'
   tip.style.padding = '16px'
   tip.style.color = 'var(--app-text-secondary, #888)'
-  tip.textContent = ctx.t(TOO_LARGE_KEY)
+  tip.textContent = ctx.t(TOO_LARGE_KEY, { limit: formatBytes(MARKDOWN_MAX_BYTES) })
   el.replaceChildren(tip)
   return { dispose: () => void (el.innerHTML = '') }
 }
@@ -65,8 +64,10 @@ function showTooLargeTip(el: HTMLElement, ctx: AppCtx): AppInstance {
 export const markdownRenderer: AppDefinition['renderer'] = async (el, file, ctx) => {
   const blob = await ctx.getObject(file.key)
 
-  // 超限：按 Blob 字节数先判，避免读入 5MB+ 全文再渲染
-  if (blob.size > MAX_BYTES) {
+  // 超限：按 Blob 字节数先判，避免读入 5MB+ 全文再渲染。
+  // 上限与 markdown-renderer spec.maxBytes 同源（builtins.ts，R2-03）——预览闸已按该线在上游拒绝，
+  // 此处保留作防御纵深（绕闸调用方/未登记 maxBytes 的注册路径）。
+  if (blob.size > MARKDOWN_MAX_BYTES) {
     return showTooLargeTip(el, ctx)
   }
 

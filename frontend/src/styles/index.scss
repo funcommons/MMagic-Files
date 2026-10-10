@@ -356,13 +356,19 @@ a {
         }
       }
 
+      // R2-11: 主按钮跟品牌主色（--el-color-primary → :root 上 = var(--app-primary)，
+      // OEM apply 写 documentElement 同作用域，可被 OEM primaryColor 覆盖）。
+      // 此前硬编码 #007AFF(Apple systemBlue) !important 把品牌橙压成蓝——确认框/冲突框
+      // 主按钮与工作台 FcButton 主色割裂的根因即此处。hover 用 dark-2 阶（_ep-overrides
+      // 已按主色 color-mix 派生），暗色主题随 data-theme 变量链自动适配，无硬编码色值。
       &.el-button--primary {
-        background: #007AFF !important;
-        color: white !important;
-        box-shadow: 0 4px 12px rgba(0, 122, 255, 0.25) !important;
+        background: var(--el-color-primary) !important;
+        border-color: var(--el-color-primary) !important;
+        color: var(--el-color-white, #fff) !important;
+        box-shadow: 0 4px 12px color-mix(in srgb, var(--el-color-primary) 25%, transparent) !important;
 
         &:hover {
-          background: #0051D5 !important;
+          background: var(--el-color-primary-dark-2) !important;
         }
       }
     }

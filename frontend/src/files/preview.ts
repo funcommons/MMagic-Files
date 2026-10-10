@@ -10,16 +10,20 @@
  *  - 切回=renderer 重跑，第 4 参回注 savedStates.get(entry.key)（插件未声明 getState 时为 undefined）
  *  - renderer 同步抛/拒绝/10s 超时 → per-tab 错误边界（标题+信息+重试+下载门控）；超时后迟到的结算 dispose 其结果并忽略
  *  - open(entry, { appId })：指定应用走 registry.require（既有 not-found 语义），未命中=错误节点不抛裸异常
- *  - Lane G4 尺寸总闸（open 前置，先于 beforeDispose gate / registry 解析）：
- *      size ≤ CONFIRM(20MB) 直开；CONFIRM < size ≤ REJECT(50MB) 询问宿主 confirmLargeFile
- *      （false/异常=取消本次 open，零半更新；无回调=放行，向后兼容）；size > REJECT 拒绝节点
- *      （不取流不渲染，文案 largefile.rejected + 下载钮 canDownload/onDownload 双门）。
- *    层次：本闸=预览链上游总闸（仅凭列表元数据判定，零取流）；渲染器自有上限=下游兜底
- *      （已取流后的内存防线：code/markdown 5MB、csv 20MB、heic 32MB 拒转——口径独立各管一段；
- *      pdf 渲染器无自带上限，主要依赖本总闸）。size 缺失/0（单文件模式伪条目）跳过本闸。
+ *  - Lane G4 尺寸总闸（R2-03 起：def 解析先行，实际拒绝线吃渲染器限额）：
+ *      def（appId/默认解析，含 lazy ensureApps）先于尺寸闸解析——实际拒绝线 = min(REJECT(50MB), def.maxBytes ?? ∞)。
+ *      size ≤ CONFIRM(20MB) 直开；CONFIRM < size ≤ 实际拒绝线 询问宿主 confirmLargeFile（false/异常=取消，
+ *      零半更新；无回调=放行向后兼容）；size > 实际拒绝线 拒绝节点（不取流不渲染不询问，文案带实际线 limit）。
+ *      效果：25.1MB csv（渲染器限 20MB）不再「确认后仍被拒」——确认带收窄到渲染器真能渲染的区段；
+ *      maxBytes ≤ CONFIRM 的类型（md/code 5MB）根本不进确认带，与渲染器 5MB 拒转语义一致。
+ *    层次：本闸=预览链上游总闸（仅凭列表元数据判定，零取流）；渲染器自有上限=下游兜底防线
+ *      （已取流/直调渲染器时的内存防线，与闸同源常量——见 apps/builtins.ts 限额表；本闸在位时正常路径
+ *      不可达，保留作防御纵深：插件应用未登记 maxBytes、未来绕过本闸的调用方）。
+ *      size 缺失/0（单文件模式伪条目）跳过本闸，渲染器自有上限兜底。
  */
 import { AppRegistry } from '@/apps/registry'
 import { createAppCtx } from '@/apps/ctx'
+import { formatBytes } from '@/files/format'
 import type { AppDataSource } from '@/apps/datasource'
 import type { AppDefinition, AppInstance, S3ObjectSummary } from '@/sdk/types'
 
@@ -37,10 +41,7 @@ const SAVED_STATE_LIMIT = 32
 export const PREVIEW_CONFIRM_BYTES = 20 * 1024 * 1024
 export const PREVIEW_REJECT_BYTES = 50 * 1024 * 1024
 
-/** 阈值展示文案：常量恒为 MB 整数倍，直接除（'20MB'/'50MB'） */
-function formatLimit(bytes: number): string {
-  return `${bytes / (1024 * 1024)}MB`
-}
+/** 阈值展示统一走 formatBytes（R2-05：'50 MB' 带空格口径，与树列表/渲染器提示同源） */
 
 export interface PreviewOptions {
   container: HTMLElement
@@ -57,7 +58,9 @@ export interface PreviewOptions {
   /** 下载总闸（缺省 true）：false 时 fallback 与错误节点均不出下载钮 */
   canDownload?: boolean
   /**
-   * 大文件确认 UI（Lane G4 确认档，CONFIRM < size ≤ REJECT 时询问）：true=继续渲染，false=取消本次 open。
+   * 大文件确认 UI（Lane G4 确认档，CONFIRM < size ≤ 该类型实际拒绝线 时询问——R2-03：
+   * 实际拒绝线=min(REJECT, def.maxBytes)，渲染器限额类型不再询问注定被拒的区段）：
+   * true=继续渲染，false=取消本次 open。
    * 缺省=确认档直接放行——默认策略：宿主未注入确认 UI 时不得把中型文件变成死路（向后兼容：
    * 既有宿主升级 SDK 后行为不变，大文件防护只在其显式接线时收紧）。
    */
@@ -214,13 +217,13 @@ export function createPreview(opts: PreviewOptions): PreviewHandle {
     container.appendChild(wrap)
   }
 
-  /** 大文件拒绝节点（Lane G4 拒绝档）：拒绝文案（带 limit 占位）+ 下载钮（canDownload/onDownload 双门，复用 appendDownloadButton） */
-  function renderRejectedNode(entry: S3ObjectSummary): void {
+  /** 大文件拒绝节点（Lane G4 拒绝档）：拒绝文案（limit=实际拒绝线，R2-03）+ 下载钮（canDownload/onDownload 双门） */
+  function renderRejectedNode(entry: S3ObjectSummary, rejectBytes: number): void {
     const wrap = document.createElement('div')
     wrap.className = 'mmf-preview-rejected'
     const tip = document.createElement('p')
     tip.className = 'mmf-preview-rejected__message'
-    tip.textContent = t('largefile.rejected', { limit: formatLimit(PREVIEW_REJECT_BYTES) })
+    tip.textContent = t('largefile.rejected', { limit: formatBytes(rejectBytes) })
     wrap.appendChild(tip)
     appendDownloadButton(wrap, entry)
     container.appendChild(wrap)
@@ -296,23 +299,57 @@ export function createPreview(opts: PreviewOptions): PreviewHandle {
 
   async function open(entry: S3ObjectSummary, openOpts: PreviewOpenOptions = {}): Promise<void> {
     const my = ++seq
+    // ===== def 解析（R2-03 前移：实际拒绝线依赖 def.maxBytes，须先于尺寸闸拿到）=====
+    // appId 未命中（require 抛 4102）暂存 defError，错误节点仍在 gate+takeOver 之后出（原时机不变）；
+    // lazy ensureApps 随之前移——插件应用的 maxBytes 也必须参与拒绝线判定，否则插件限额类型会
+    // 误入确认带（「确认后仍被拒」换个形态复发）。被新链/关闭接管时代际校验整体退出。
+    const fileRef = { name: entry.name, mime: entry.mime, size: entry.size }
+    let def: AppDefinition | null = null
+    let defError: unknown = null
+    if (openOpts.appId !== undefined) {
+      // 指定应用：registry.require 既有 not-found 语义（4102）——未命中降级错误节点，不抛裸异常
+      try {
+        def = registry.require(openOpts.appId)
+      } catch (err) {
+        defError = err
+      }
+    } else {
+      def = registry.resolveDefault(fileRef)
+      if (!def && ensureApps) {
+        // lazy 插件首命中触发：未命中先尝试加载配置插件，再解析一次
+        try {
+          await ensureApps(fileRef)
+        } catch {
+          // 加载失败按未命中处理
+        }
+        if (my !== seq) return
+        def = registry.resolveDefault(fileRef)
+      }
+    }
+    // 实际拒绝线 = min(全局 REJECT, def.maxBytes)（R2-03）：def 未解析到（fallback/require 未命中）
+    // 无限额可依，退回全局线
+    const rejectBytes =
+      def?.maxBytes !== undefined ? Math.min(PREVIEW_REJECT_BYTES, def.maxBytes) : PREVIEW_REJECT_BYTES
     // ===== Lane G4 尺寸总闸（appId 路径同样生效）=====
     // 闸序决策：先于 beforeDispose gate——「确认了却被旧实例暂缓」是体验割裂（用户为一次注定不生效的
     // open 付出确认成本），故先裁尺寸、后问旧实例；确认档被新链接管时走代际校验整体退出。
     // size 缺失/0（单文件模式伪条目）：无法判定，跳过本闸，下游渲染器自有上限兜底（见文件头层次注）。
     const sizeBytes = entry.size
     if (sizeBytes > 0) {
-      if (sizeBytes > PREVIEW_REJECT_BYTES) {
-        // 拒绝档：不取流不渲染；容器仍按常规链接管（gate→接管→拒绝节点），下载引导兜底
+      if (sizeBytes > rejectBytes) {
+        // 拒绝档：不取流不渲染不询问（渲染器限额类型不再「确认后仍被拒」，R2-03）；
+        // 容器仍按常规链接管（gate→接管→拒绝节点），下载引导兜底
         const gate = await askBeforeDispose(instance)
         if (my !== seq) return
         if (!gate) return // 暂缓：拒绝节点不出，旧预览完整保留
         takeOver(entry, instance, current?.key ?? null)
-        renderRejectedNode(entry)
+        renderRejectedNode(entry, rejectBytes)
         return
       }
       if (sizeBytes > PREVIEW_CONFIRM_BYTES && confirmLargeFile) {
-        // 确认档：仅宿主注入了确认 UI 才询问；同步抛/拒绝异常一律视为取消（宁可少渲染，不可误渲染）
+        // 确认档（size ≤ rejectBytes 已由上支保证）：仅宿主注入了确认 UI 才询问；
+        // 同步抛/拒绝异常一律视为取消（宁可少渲染，不可误渲染）。
+        // maxBytes ≤ CONFIRM 的类型两区段无交集（如 md/code 5MB）→ 根本不进确认带。
         let ok = false
         try {
           ok = await confirmLargeFile(entry, sizeBytes)
@@ -329,28 +366,9 @@ export function createPreview(opts: PreviewOptions): PreviewHandle {
     if (my !== seq) return // 已被更新的 open/close/clear/expire 接管：本链整体退出
     if (!gate) return // 暂缓：保留当前实例与容器内容，本次 open 不生效
     takeOver(entry, instance, current?.key ?? null)
-    const fileRef = { name: entry.name, mime: entry.mime, size: entry.size }
-    let def: AppDefinition | null = null
-    if (openOpts.appId !== undefined) {
-      // 指定应用：registry.require 既有 not-found 语义（4102）——未命中降级错误节点，不抛裸异常
-      try {
-        def = registry.require(openOpts.appId)
-      } catch (err) {
-        renderErrorNode(entry, errMessage(err), openOpts)
-        return
-      }
-    } else {
-      def = registry.resolveDefault(fileRef)
-      if (!def && ensureApps) {
-        // lazy 插件首命中触发：未命中先尝试加载配置插件，再解析一次
-        try {
-          await ensureApps(fileRef)
-        } catch {
-          // 加载失败按未命中处理
-        }
-        if (my !== seq) return
-        def = registry.resolveDefault(fileRef)
-      }
+    if (defError !== null) {
+      renderErrorNode(entry, errMessage(defError), openOpts)
+      return
     }
     if (!def) {
       renderFallback(entry)

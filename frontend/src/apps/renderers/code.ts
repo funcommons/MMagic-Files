@@ -12,12 +12,15 @@
  *         语言服务降级；vite 构建期 worker 打包策略后续收口（见《第一期文件类型支持计划》）。
  */
 import type { editor as monacoEditorNS } from 'monaco-editor'
+import { CODE_MAX_BYTES } from '../builtins'
+import { formatBytes } from '../../files/format'
 import type { AppCtx, AppDefinition, AppInstance } from '../../sdk/types'
 
 // ───────────────────────── 常量 ─────────────────────────
-
-/** 文本类预览/编辑上限：5MB（契约预览策略；按 file.size 先判，避免白拉 5MB+ 字节流） */
-const MAX_BYTES = 5_000_000
+// 文本类预览/编辑上限：5MiB（契约预览策略；按 file.size 先判，避免白拉超限字节流）。
+// 与 code-editor spec.maxBytes 同源（builtins.ts，R2-03）——预览闸已按该线在上游拒绝，
+// 此处保留作防御纵深（绕闸调用方/未登记 maxBytes 的注册路径）。
+// 口径统一：原 5_000_000（十进制）废弃，改 5*1024*1024（1024 基）对齐 markdown/预览闸。
 
 /** i18n key：超限只读提示 / 未保存关闭确认（词典在 locales，键缺省时 t 回退键名） */
 const TOO_LARGE_KEY = 'app.code-too-large'
@@ -80,13 +83,13 @@ function ensureMonacoEnv(): void {
   }
 }
 
-/** 超限只读提示节点（不读全文、不建 editor；样式对齐兄弟渲染器口径） */
+/** 超限只读提示节点（不读全文、不建 editor；{limit} 与预览闸同源 formatBytes 口径，R2-05） */
 function showTooLargeTip(el: HTMLElement, ctx: AppCtx): AppInstance {
   const tip = document.createElement('div')
   tip.className = 'code-too-large-tip'
   tip.style.padding = '16px'
   tip.style.color = 'var(--app-text-secondary, #888)'
-  tip.textContent = ctx.t(TOO_LARGE_KEY)
+  tip.textContent = ctx.t(TOO_LARGE_KEY, { limit: formatBytes(CODE_MAX_BYTES) })
   el.replaceChildren(tip)
   return { dispose: () => el.replaceChildren() }
 }
@@ -126,8 +129,8 @@ export const codeEditorRenderer: AppDefinition['renderer'] = async (
   ctx,
   savedState,
 ) => {
-  // 1) 5MB 只读降级：先按 file.size 判，不建 editor、不拉字节流（契约预览策略）
-  if (file.size > MAX_BYTES) {
+  // 1) 5MiB 只读降级：先按 file.size 判，不建 editor、不拉字节流（契约预览策略；与闸关系见常量注）
+  if (file.size > CODE_MAX_BYTES) {
     return showTooLargeTip(el, ctx)
   }
 

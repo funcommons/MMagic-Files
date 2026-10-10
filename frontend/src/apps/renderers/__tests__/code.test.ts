@@ -328,23 +328,25 @@ describe('codeEditorRenderer：beforeDispose 契约', () => {
 // ───────────────────────── 5MB 只读降级 ─────────────────────────
 
 describe('codeEditorRenderer：5MB 只读降级', () => {
-  it('file.size > 5_000_000：不建 editor，显示只读提示（ctx.t），dispose 清容器', async () => {
+  const CODE_MAX = 5 * 1024 * 1024 // R2-03：与 spec.maxBytes 同源（1024 基，原 5_000_000 十进制口径废弃）
+
+  it('file.size > 5MiB：不建 editor，显示只读提示（ctx.t 带 {limit} 实参），dispose 清容器', async () => {
     const el = document.createElement('div')
     const ctx = makeCtx(new Blob(['x'], { type: 'text/plain' }))
-    const inst = (await codeEditorRenderer(el, { ...FILE, size: 5_000_001 }, ctx)) as AppInstance
+    const inst = (await codeEditorRenderer(el, { ...FILE, size: CODE_MAX + 1 }, ctx)) as AppInstance
 
     expect(monacoMock.create).not.toHaveBeenCalled()
     expect(monacoMock.editors).toHaveLength(0)
     expect(ctx.getObject).not.toHaveBeenCalled() // 超限不拉字节流
-    expect(ctx.t).toHaveBeenCalledWith('app.code-too-large')
+    expect(ctx.t).toHaveBeenCalledWith('app.code-too-large', { limit: '5.0 MB' })
     expect(el.textContent).toBe('i18n:app.code-too-large')
 
     inst.dispose()
     expect(el.innerHTML).toBe('')
   })
 
-  it('file.size 恰为 5MB：不降级，正常建 editor', async () => {
-    await render({ file: { ...FILE, size: 5_000_000 } })
+  it('file.size 恰为 5MiB：不降级，正常建 editor', async () => {
+    await render({ file: { ...FILE, size: CODE_MAX } })
     expect(monacoMock.create).toHaveBeenCalledTimes(1)
   })
 })

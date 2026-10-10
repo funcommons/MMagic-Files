@@ -10,6 +10,11 @@
  *       jpg/jpeg→image/jpeg(0.92)、其余（svg 等）维持 PNG（canvas 位图无法回写 svg 矢量，见函数注释）
  *       → canvas.toBlob(mime, quality) → ctx.putObject(key, blob, mime) → ctx.notify('saved') → dirty=false。
  *       保存仍直接覆盖原 key（契约未禁止）；【决策留痕】M2 曾一律导出 PNG，F6 起按原格式保留。
+ *       降级确认（R2-08）：原扩展非 png/jpg/jpeg（即导出 mime ≠ 原格式）时保存前先 confirm
+ *       （app.painter-format-hint，与 beforeDispose 同一 askUser 形态）——false=取消本次保存
+ *       （不导出不上传、dirty 保持可再问）；此前 svg 保存被静默光栅化成 PNG 字节，用户零感知。
+ * 工具条（R2-12）：按钮统一套 fc-button 全局外观类（DOM 构建加 class 即可；色板为色块语义，
+ *       套 fc-button-icon xs，底色仍由内联 style 提供）。
  * beforeDispose：同 code.ts 契约（自含实现）——非 dirty 同步放行；dirty 弹 confirm（false=暂缓）；
  *       并与 3s 超时 Promise.race，confirm 卡死时强制放行，防 tab 永久悬挂。
  * dispose：AbortController 摘全部监听 + revokeObjectURL（底图 objectURL，若有）+ 清容器；可重入幂等。
@@ -21,12 +26,13 @@ import type { AppDefinition } from '../../sdk/types'
 
 // ───────────────────────── 常量 ─────────────────────────
 
-/** i18n key：2d 不可用提示 / 保存钮 / 未保存关闭确认。
+/** i18n key：2d 不可用提示 / 保存钮 / 未保存关闭确认 / 导出格式降级确认（R2-08，词典已备）。
  *  宿主词典无 plugin.* 命名空间（plugin.save 不可用），保存钮落新 key app.painter-save；
- *  app.painter-unsupported / app.painter-unsaved 同为新 key——三者均待主词典补录，缺省时 t 回退键名。 */
+ *  app.painter-unsupported / app.painter-unsaved 同为新 key——缺省时 t 回退键名。 */
 const UNSUPPORTED_KEY = 'app.painter-unsupported'
 const SAVE_KEY = 'app.painter-save'
 const UNSAVED_KEY = 'app.painter-unsaved'
+const FORMAT_HINT_KEY = 'app.painter-format-hint'
 
 /** 清空钮文案：复用宿主既有通用键 common.clear（词典已含，不新增） */
 const CLEAR_KEY = 'common.clear'
@@ -83,6 +89,16 @@ export function pickExportFormat(fileName: string): ExportFormat {
   const ext = dot >= 0 ? fileName.slice(dot + 1).toLowerCase() : ''
   if (ext === 'jpg' || ext === 'jpeg') return { mime: 'image/jpeg', quality: 0.92 }
   return { mime: 'image/png' }
+}
+
+/**
+ * 保存格式降级判定（R2-08，纯函数）：原扩展不在 {png, jpg, jpeg}（即 pickExportFormat 会以
+ * image/png 光栅化覆盖非 png 文件）→ true，保存链据此先征询用户；png/jpg/jpeg 原格式保留不询问。
+ */
+export function needsFormatConfirm(fileName: string): boolean {
+  const dot = fileName.lastIndexOf('.')
+  const ext = dot >= 0 ? fileName.slice(dot + 1).toLowerCase() : ''
+  return ext !== 'png' && ext !== 'jpg' && ext !== 'jpeg'
 }
 
 // ───────────────────────── 渲染器 ─────────────────────────
@@ -150,7 +166,8 @@ export const imagePainterRenderer: AppDefinition['renderer'] = async (el, file, 
   for (const c of COLORS) {
     const b = document.createElement('button')
     b.type = 'button'
-    b.className = 'mmagic-painter-swatch'
+    // R2-12：套 fc-button 全局外观（色块语义用 icon 方形档；底色仍由内联 style 提供）
+    b.className = 'mmagic-painter-swatch fc-button fc-button-icon fc-button-xs'
     b.dataset.color = c
     b.style.background = c
     b.title = c
@@ -167,7 +184,7 @@ export const imagePainterRenderer: AppDefinition['renderer'] = async (el, file, 
   for (const w of WIDTHS) {
     const b = document.createElement('button')
     b.type = 'button'
-    b.className = 'mmagic-painter-width'
+    b.className = 'mmagic-painter-width fc-button fc-button-outline fc-button-xs' // R2-12
     b.dataset.width = String(w)
     b.textContent = String(w)
     b.title = `${w}px`
@@ -185,7 +202,7 @@ export const imagePainterRenderer: AppDefinition['renderer'] = async (el, file, 
   // 清空：白铺重铺 + 置 dirty（契约：清空也算改动，关闭仍需确认）
   const clearBtn = document.createElement('button')
   clearBtn.type = 'button'
-  clearBtn.className = 'mmagic-painter-clear'
+  clearBtn.className = 'mmagic-painter-clear fc-button fc-button-outline fc-button-xs' // R2-12
   clearBtn.dataset.action = 'clear'
   clearBtn.textContent = ctx.t(CLEAR_KEY)
   clearBtn.addEventListener(
@@ -200,7 +217,7 @@ export const imagePainterRenderer: AppDefinition['renderer'] = async (el, file, 
   // 保存钮：文案走 ctx.t（app.painter-save 待词典补录，见常量注释）
   const saveBtn = document.createElement('button')
   saveBtn.type = 'button'
-  saveBtn.className = 'mmagic-painter-save'
+  saveBtn.className = 'mmagic-painter-save fc-button fc-button-primary fc-button-xs' // R2-12
   saveBtn.dataset.action = 'save'
   saveBtn.textContent = ctx.t(SAVE_KEY)
   saveBtn.addEventListener(
@@ -291,12 +308,19 @@ export const imagePainterRenderer: AppDefinition['renderer'] = async (el, file, 
     }
   })()
 
-  // 7) 保存链：toBlob(按原格式，Lane F6) → putObject（mime 随导出格式覆盖原 key）→ notify('saved') → dirty 复位
+  // 7) 保存链：格式降级先征询（R2-08）→ toBlob(按原格式，Lane F6) → putObject（mime 随导出格式覆盖原 key）
+  //    → notify('saved') → dirty 复位
   async function save(): Promise<void> {
     if (saving) return // 保存中：本次点击丢弃（防重入，不排队）
     saving = true
     try {
       const fmt = pickExportFormat(file.name)
+      // 降级确认（R2-08）：svg 等非 png/jpg/jpeg 将被光栅化成 PNG 位图覆盖原文件——保存前明示，
+      // 取消=不导出不上传（dirty 保持，用户可再问/改存他途）
+      if (needsFormatConfirm(file.name)) {
+        const ok = await askUser(ctx.t(FORMAT_HINT_KEY))
+        if (!ok) return
+      }
       const blob = await new Promise<Blob | null>((resolve) => {
         try {
           canvas.toBlob((b) => resolve(b), fmt.mime, fmt.quality)

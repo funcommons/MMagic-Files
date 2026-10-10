@@ -89,7 +89,7 @@ onUnmounted(() => {
     <button
       v-if="transfers > 0"
       type="button"
-      class="stbar__seg stbar__btn"
+      class="stbar__seg stbar__btn fc-button fc-button-xs"
       data-testid="statusbar-transfers"
       @click="emit('transfers-click')"
     >
@@ -108,7 +108,7 @@ onUnmounted(() => {
     <button
       v-if="sessionText !== null"
       type="button"
-      class="stbar__seg stbar__btn"
+      class="stbar__seg stbar__btn fc-button fc-button-xs"
       data-testid="statusbar-session"
       @click="emit('session-click')"
     >
@@ -153,7 +153,10 @@ onUnmounted(() => {
   flex: 1;
 }
 
-.stbar__btn {
+/* 段钮（R2-09）：挂 SDK fc-button fc-button-xs 类。SDK 规格 xs=24px，状态条 28px 高、
+   行内按钮 22px——全局 button.fc-button-xs 特异性 (0,2,1)，这里嵌套 .stbar 到 (0,3,0)
+   钉死紧凑条内规格（R2-09 口径：28px 紧凑条用类方案，与 TreePanel 一致）。 */
+.stbar .stbar__btn {
   height: 22px;
   margin: 0;
   padding: 0 6px;

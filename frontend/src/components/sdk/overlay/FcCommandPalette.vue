@@ -6,7 +6,7 @@ defineOptions({ name: 'FcCommandPalette' })
  * 用法 (在 App.vue 全局挂一次):
  *   <FcCommandPalette v-model:open="paletteOpen" :commands="orderedCommands" />
  *
- * - 自动 Cmd/Ctrl+K 唤起 (绑定在 AppLayout: useKeyboardShortcut('mod+k'))
+ * - 自动 Cmd/Ctrl+K 唤起 (R2-01: useKeyboardShortcut('mod+k') 与面板同处挂载, 见 App.vue)
  * - 命令/文件双模式 (VS Code 惯例): 默认 = 文件模式 (结果来自
  *   registerFileSearchProvider 注入的 provider); 输入 '>' 前缀 = 仅命令模式
  * - 模糊搜索 (label / keywords / group); 最近使用置顶由调用方 orderedCommands 保证

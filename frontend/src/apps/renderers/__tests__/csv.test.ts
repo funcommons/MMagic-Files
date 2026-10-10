@@ -1,27 +1,29 @@
 /**
  * csvTableRenderer 单测（M2-R3）
  * 契约正本：csv.ts 文件头注释——papaparse 表格化 + 客户端分页（pageSize 100）
- * + 超阈值（text.length > CSV_MAX_BYTES）只渲染提示节点 + savedState 恢复页码
+ * + 超阈值（text.length > CSV_TABLE_MAX_BYTES，与 spec.maxBytes 同源）只渲染提示节点 + savedState 恢复页码
  *
  * 覆盖点：
  *  1. 样例 CSV（表头行+数据行）→ thead/tbody 行列数；引号包裹的含逗号字段解析正确
  *  2. TSV（tab 分隔）→ papaparse 自动探测分隔符，同样表格化
  *  3. 分页——250 数据行切 3 页：下一页/上一页按钮翻页、页码指示、边界禁用、getState 跟随
  *  4. savedState 恢复——第 4 参 {page} 定位起始页；越界收敛到末页；非法值回退第 1 页
- *  5. 超阈值——只渲染提示节点（ctx.t('app.csv-too-large')），不出表格，无 getState
+ *  5. 超阈值——只渲染提示节点（ctx.t('app.csv-too-large', {limit})），不出表格，无 getState
  *  6. dispose——DOM 还原、按钮监听随 AbortController 失效；单页/提示分支不出分页
  *  7. 空文件——渲染空态提示节点
+ *  8. 表格观感（R2-13）——网格线/表头底色加粗/行 hover（<style> 注入）/数字列右对齐
  */
 import { describe, expect, it, vi } from 'vitest'
-import { CSV_MAX_BYTES, CSV_PAGE_SIZE, csvTableRenderer } from '../csv'
+import { CSV_TABLE_MAX_BYTES } from '../../builtins'
+import { CSV_PAGE_SIZE, csvTableRenderer } from '../csv'
 import type { AppCtx, AppInstance } from '../../../sdk/types'
 
-/** AppCtx 桩：t 恒等返回 key（词典 M2 收口前 renderer 侧拿到的就是 key 口径） */
+/** AppCtx 桩：t 恒等返回 key（词典 M2 收口前 renderer 侧拿到的就是 key 口径；spy 便于断言占位实参） */
 function makeCtx(blob: Blob): AppCtx {
   return {
     getObject: vi.fn(async () => blob),
     putObject: vi.fn(async () => undefined),
-    t: (key: string) => key,
+    t: vi.fn((key: string, _params?: Record<string, unknown>) => key),
     notify: vi.fn(),
     theme: {},
   }
@@ -165,6 +167,55 @@ describe('csvTableRenderer 分页', () => {
   })
 })
 
+describe('csvTableRenderer 表格观感（R2-13：网格线/表头/行 hover/数字右对齐）', () => {
+  it('表格网格线：border-collapse + 单元格 1px 边框（--app-section-border-color 令牌）', async () => {
+    const el = document.createElement('div')
+    await render(el, blobOf(SAMPLE))
+    const table = el.querySelector('table')
+    expect(table?.style.borderCollapse).toBe('collapse')
+    const th = el.querySelector('thead th') as HTMLElement
+    const td = el.querySelector('tbody td') as HTMLElement
+    expect(th.style.borderBottom).toContain('1px')
+    expect(td.style.border).toContain('1px')
+    expect(td.style.border).toContain('var(--app-section-border-color)')
+  })
+
+  it('表头底色 + 加粗；数据行 hover 规则经内联 <style> 注入（jsdom 无样式表解析）', async () => {
+    const el = document.createElement('div')
+    await render(el, blobOf(SAMPLE))
+    const th = el.querySelector('thead th') as HTMLElement
+    expect(th.style.fontWeight).toBe('bold')
+    expect(th.style.backgroundColor).not.toBe('')
+    const style = el.querySelector('style')
+    expect(style, '行 hover 规则以 <style> 注入').not.toBeNull()
+    expect(style?.textContent).toContain(':hover')
+    expect(style?.textContent).toContain('mmagic-csv-table')
+  })
+
+  it('数字列右对齐（^-?[\\d,.]+$ 启发），文本列保持左对齐', async () => {
+    const el = document.createElement('div')
+    await render(el, blobOf(SAMPLE))
+    const row = el.querySelectorAll('tbody tr')[0]!
+    const cells = Array.from(row.querySelectorAll('td')) as HTMLElement[]
+    expect(cells[0]!.textContent).toBe('1')
+    expect(cells[0]!.style.textAlign).toBe('right')
+    expect(cells[1]!.textContent).toBe('alpha')
+    expect(cells[1]!.style.textAlign).not.toBe('right')
+  })
+
+  it('数字启发覆盖：负数/千分位/小数右对齐；日期与空串不右对齐', async () => {
+    const el = document.createElement('div')
+    await render(el, blobOf('v\n-3.14\n"1,234.5"\n2026-01-01\n\nx'))
+    const cells = Array.from(el.querySelectorAll('tbody td')) as HTMLElement[]
+    // papaparse skipEmptyLines：-3.14 / 1,234.5 / 2026-01-01 / x
+    expect(cells).toHaveLength(4)
+    expect(cells[0]!.style.textAlign).toBe('right')
+    expect(cells[1]!.style.textAlign).toBe('right')
+    expect(cells[2]!.style.textAlign).not.toBe('right')
+    expect(cells[3]!.style.textAlign).not.toBe('right')
+  })
+})
+
 describe('csvTableRenderer savedState 恢复', () => {
   function bigCsv(): string {
     const lines = ['idx,note']
@@ -200,10 +251,10 @@ describe('csvTableRenderer savedState 恢复', () => {
 })
 
 describe('csvTableRenderer 超阈值与 dispose', () => {
-  it(`text.length > CSV_MAX_BYTES（${CSV_MAX_BYTES}）：只渲染提示节点，无表格无 getState`, async () => {
+  it(`text.length > CSV_TABLE_MAX_BYTES（${CSV_TABLE_MAX_BYTES}）：只渲染提示节点，无表格无 getState`, async () => {
     const el = document.createElement('div')
     // 阈值基于 text.length：构造超长字符串触发提示分支（不进 papaparse）
-    const big = blobOf(`id,name\n1,${'x'.repeat(CSV_MAX_BYTES + 1)}`)
+    const big = blobOf(`id,name\n1,${'x'.repeat(CSV_TABLE_MAX_BYTES + 1)}`)
     const inst = await render(el, big)
     expect(el.childElementCount).toBe(1)
     expect(el.textContent).toContain('app.csv-too-large')
@@ -211,6 +262,13 @@ describe('csvTableRenderer 超阈值与 dispose', () => {
     expect(inst.getState).toBeUndefined()
     inst.dispose()
     expect(el.childElementCount).toBe(0)
+  })
+
+  it('超限提示带 {limit} 占位实参（R2-03/R2-05：formatBytes 口径「20.0 MB」）', async () => {
+    const el = document.createElement('div')
+    const ctx = makeCtx(blobOf(`id,name\n1,${'x'.repeat(CSV_TABLE_MAX_BYTES + 1)}`))
+    await csvTableRenderer(el, FILE, ctx)
+    expect(ctx.t).toHaveBeenCalledWith('app.csv-too-large', { limit: '20.0 MB' })
   })
 
   it('dispose：DOM 还原；detach 后点击分页按钮不报错（监听已 abort）', async () => {

@@ -7,7 +7,7 @@
  * toast 以模块 mock 收口（词典无失败键，错误走消息原文，不在此断言文案）。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { config, flushPromises, mount } from '@vue/test-utils'
 import type { VueWrapper } from '@vue/test-utils'
 import { ERROR_CODES, SdkError } from '@/sdk/errorCodes'
 import type { S3Client, S3ListResult } from '@/sdk/types'
@@ -289,5 +289,32 @@ describe('SearchDialog', () => {
     await flushPromises()
     expect(w.emitted('update:open')?.[0]).toEqual([false])
     w.unmount()
+  })
+
+  // R2-14：时间列按 i18n locale 短格式（date+time），不再走浏览器缺省 locale
+  it('时间列按 i18n locale 格式化：zh-CN 短格式 + en-US 短格式随 locale 切换', async () => {
+    // setup.ts 的全局 i18n 实例（locale 默认 zh-CN）；经 config.global.plugins 取回
+    const i18nPlugin = config.global.plugins?.[0] as { global: { locale: { value: string } } } | undefined
+    expect(i18nPlugin?.global?.locale).toBeDefined()
+    const lastModified = new Date(2026, 8, 1, 8, 0, 0).getTime() // 2026-09-01 08:00 本地时区
+    try {
+      i18nPlugin!.global.locale.value = 'zh-CN'
+      const { w } = mountDialog({ store: await seededStore([row('root/a.txt', 1, lastModified)]) })
+      await flushPromises()
+      const zhTime = w.find('.search-dialog__time').text()
+      expect(zhTime).toMatch(/2026\/9\/1/)
+      expect(zhTime).toContain('08:00')
+      w.unmount()
+
+      i18nPlugin!.global.locale.value = 'en-US'
+      const { w: w2 } = mountDialog({ store: await seededStore([row('root/a.txt', 1, lastModified)]) })
+      await flushPromises()
+      const enTime = w2.find('.search-dialog__time').text()
+      expect(enTime).toMatch(/9\/1\/26/)
+      expect(enTime).toContain('AM')
+      w2.unmount()
+    } finally {
+      i18nPlugin!.global.locale.value = 'zh-CN'
+    }
   })
 })

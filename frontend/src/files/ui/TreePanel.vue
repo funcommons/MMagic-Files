@@ -35,6 +35,7 @@ import type { MenuItem } from '@/components/sdk/overlay/FcContextMenu.vue'
 import type { AppRegistry } from '@/apps/registry'
 import { normalizePrefix } from '../tree-store'
 import type { FileTreeController } from '../tree-store'
+import { formatBytes } from '../format'
 import type { S3ObjectSummary } from '@/sdk/types'
 import { isTypingTarget, matchesHotkey } from './shortcuts'
 
@@ -138,17 +139,8 @@ function lastSeg(prefix: string): string {
   return trimmed.slice(trimmed.lastIndexOf('/') + 1) || trimmed
 }
 
-const SIZE_UNITS = ['KB', 'MB', 'GB', 'TB']
-function formatSize(size: number): string {
-  if (size < 1024) return `${size} B`
-  let v = size
-  let i = -1
-  do {
-    v /= 1024
-    i += 1
-  } while (v >= 1024 && i < SIZE_UNITS.length - 1)
-  return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${SIZE_UNITS[i] ?? 'KB'}`
-}
+/** 文件大小展示统一走 formatBytes（R2-05：与预览闸/渲染器提示同源口径，删本地重复实现） */
+const formatSize = formatBytes
 
 function typeOf(e: S3ObjectSummary): string {
   if (e.isDir) return t('files.tree.type-dir')

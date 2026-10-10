@@ -10,12 +10,25 @@ import type { AppAction, AppDefinition, AppMatcher } from '../sdk/types'
 
 export const FALLBACK_APP_ID = 'fallback-download'
 
+// ───────────────────────── 渲染器字节限额（R2-03 单一事实源） ─────────────────────────
+// 本表是唯一正本：BUILTIN_APP_SPECS 的 maxBytes（预览闸读 def.maxBytes 取实际拒绝线）
+// 与各渲染器内部防线（csv/markdown/code 的既有常量）共用同一导出常量——渲染器 import 这里的值，
+// 杜绝「预览闸 50MB × 渲染器 20MB」两套字面量各自漂移（R2-03 双闸叠加事故的根因）。
+// heic.ts 不在本 lane 可写范围：其 MAX_HEIC_BYTES=32MiB 与 HEIC_VIEWER_MAX_BYTES 保持同值，
+// 修改时必须两处同步（两常量当前相等，见该渲染器常量注释）。
+export const MARKDOWN_MAX_BYTES = 5 * 1024 * 1024
+export const CODE_MAX_BYTES = 5 * 1024 * 1024
+export const CSV_TABLE_MAX_BYTES = 20 * 1024 * 1024
+export const HEIC_VIEWER_MAX_BYTES = 32 * 1024 * 1024
+
 export interface BuiltinAppSpec {
   code: string
   labelKey: string
   type: 'view' | 'edit'
   matcher: AppMatcher
   actions: AppAction[]
+  /** 渲染器字节限额（缺省=无渲染器级限额；预览闸实际拒绝线=min(PREVIEW_REJECT, maxBytes)） */
+  maxBytes?: number
 }
 
 export const BUILTIN_APP_SPECS: BuiltinAppSpec[] = [
@@ -24,10 +37,10 @@ export const BUILTIN_APP_SPECS: BuiltinAppSpec[] = [
   { code: 'video-player', labelKey: 'app.video-player', type: 'view', matcher: { ext: ['mp4', 'webm', 'mov'] }, actions: ['preview'] },
   { code: 'audio-player', labelKey: 'app.audio-player', type: 'view', matcher: { ext: ['mp3', 'wav', 'ogg', 'flac', 'm4a'] }, actions: ['preview'] },
   { code: 'pdf-viewer', labelKey: 'app.pdf-viewer', type: 'view', matcher: { ext: ['pdf'] }, actions: ['preview'] },
-  { code: 'markdown-renderer', labelKey: 'app.markdown-renderer', type: 'view', matcher: { ext: ['md', 'markdown'] }, actions: ['preview'] },
+  { code: 'markdown-renderer', labelKey: 'app.markdown-renderer', type: 'view', matcher: { ext: ['md', 'markdown'] }, actions: ['preview'], maxBytes: MARKDOWN_MAX_BYTES },
   // F3：渲染类应用先于 code-editor 注册（注册序=默认应用优先级）——
   // csv/tsv 默认进 csv-table 表格预览，code-editor 的文本态经「打开方式」可达（不再抢占默认）。
-  { code: 'csv-table', labelKey: 'app.csv-table', type: 'view', matcher: { ext: ['csv', 'tsv'] }, actions: ['preview'] },
+  { code: 'csv-table', labelKey: 'app.csv-table', type: 'view', matcher: { ext: ['csv', 'tsv'] }, actions: ['preview'], maxBytes: CSV_TABLE_MAX_BYTES },
   {
     code: 'code-editor',
     labelKey: 'app.code-editor',
@@ -41,8 +54,9 @@ export const BUILTIN_APP_SPECS: BuiltinAppSpec[] = [
       ],
     },
     actions: ['edit'],
+    maxBytes: CODE_MAX_BYTES,
   },
-  { code: 'heic-viewer', labelKey: 'app.heic-viewer', type: 'view', matcher: { ext: ['heic', 'heif'] }, actions: ['preview'] },
+  { code: 'heic-viewer', labelKey: 'app.heic-viewer', type: 'view', matcher: { ext: ['heic', 'heif'] }, actions: ['preview'], maxBytes: HEIC_VIEWER_MAX_BYTES },
   { code: 'docx-viewer', labelKey: 'app.docx-viewer', type: 'view', matcher: { ext: ['docx'] }, actions: ['preview'] },
   { code: 'xlsx-viewer', labelKey: 'app.xlsx-viewer', type: 'view', matcher: { ext: ['xlsx', 'xls'] }, actions: ['preview'] },
 ]
@@ -77,6 +91,8 @@ export function registerBuiltins(
       label: spec.labelKey,
       version: '1.0.0',
       requiresSdk: 1,
+      // R2-03：限额登记透传——预览闸读 def.maxBytes 收敛实际拒绝线（min(PREVIEW_REJECT, maxBytes)）
+      ...(spec.maxBytes !== undefined ? { maxBytes: spec.maxBytes } : {}),
       renderer: renderers[spec.code] ?? placeholderRenderer(spec.code),
     }
     const result = registry.register(def)
