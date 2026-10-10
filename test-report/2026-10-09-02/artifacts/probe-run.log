@@ -1,0 +1,23 @@
+
+Running 13 tests using 1 worker
+
+  ✓   1 ../../../../../../private/tmp/mmf-probe/probes.spec.ts:38:5 › probe-01 工作台全景：树+分页器+预览tab+StatusBar+传输中心 (845ms)
+[probe-02] index-count = 8
+  ✓   2 ../../../../../../private/tmp/mmf-probe/probes.spec.ts:69:5 › probe-02 全局搜索：冷索引空态 → 扫描 → 结果 (1.2s)
+[probe-03] GET url = https://s3.mock.local/mock-bucket/sessions/test/README.md?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIDMOCKEXAM ...
+  ✓   3 ../../../../../../private/tmp/mmf-probe/probes.spec.ts:90:5 › probe-03 分享对话框：生成 GET 预签名链接 (838ms)
+  ✓   4 ../../../../../../private/tmp/mmf-probe/probes.spec.ts:102:5 › probe-04 预览 tab：连开两文件 + 双击钉住 (700ms)
+  ✓   5 ../../../../../../private/tmp/mmf-probe/probes.spec.ts:118:5 › probe-05 传输中心：暂停/恢复 (16.7s)
+[probe-06] ⌘K/Ctrl+K 后 .fc-cp 面板数量 = 0 （0=面板未唤起；mod+k 唯一绑定在未挂载的 AppLayout）
+  ✓   6 ../../../../../../private/tmp/mmf-probe/probes.spec.ts:143:5 › probe-06 命令面板：⌘K 唤起取证（AppLayout 未挂载 → 无响应） (1.2s)
+  ✓   7 ../../../../../../private/tmp/mmf-probe/probes.spec.ts:154:5 › probe-07 boot 失败卡 + 本地连接向导表单 (518ms)
+  ✓   8 ../../../../../../private/tmp/mmf-probe/probes.spec.ts:168:5 › probe-08 键盘流：Alt+↑ 面包屑回退（前后） (451ms)
+[probe-09] 冲突对话框按钮 = ["跳过","覆盖"] （关闭=X，词典 conflict-abort 键未渲染）
+  ✓   9 ../../../../../../private/tmp/mmf-probe/probes.spec.ts:180:5 › probe-09 上传冲突对话框（覆盖/跳过/关闭三态） (673ms)
+  ✓  10 ../../../../../../private/tmp/mmf-probe/probes.spec.ts:194:5 › probe-10 深目录分页条 + 跳页 (449ms)
+  ✓  11 ../../../../../../private/tmp/mmf-probe/probes.spec.ts:211:5 › probe-11 csv 双闸叠加：20MB 确认放行后仍被 csv 渲染器 20MB 拒 (939ms)
+  ✓  12 ../../../../../../private/tmp/mmf-probe/probes.spec.ts:229:5 › probe-12 markdown 5MB 上限提示（单位口径取证） (405ms)
+[probe-13] putRequests = ["sessions/test/icon.svg"]
+  ✓  13 ../../../../../../private/tmp/mmf-probe/probes.spec.ts:239:5 › probe-13 painter：svg 打开画板保存（PNG 降级提示取证） (2.0s)
+
+  13 passed (27.3s)
