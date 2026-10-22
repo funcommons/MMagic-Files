@@ -1,0 +1,79 @@
+// Element Plus 原生组件的 SDK 全局外观类。
+// 仅用于不值得增加 Vue 薄封装、但仍需统一主题样式的组件。
+
+.fc-input.el-input,
+.fc-input.el-textarea {
+  width: 100%;
+}
+
+.fc-input.el-input.has-error .el-input__wrapper,
+.fc-input.el-input.has-error .el-input__wrapper:hover,
+.fc-input.el-input.has-error .el-input__wrapper.is-focus,
+.fc-input.el-textarea.has-error .el-textarea__inner,
+.fc-input.el-textarea.has-error .el-textarea__inner:hover,
+.fc-input.el-textarea.has-error .el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--app-color-danger, #ff3b30) inset !important;
+}
+
+.fc-input__error {
+  margin-top: 4px;
+  color: var(--app-color-danger, #ff3b30);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.fc-form-item.el-form-item .el-form-item__label {
+  color: var(--app-text, inherit) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+}
+
+.fc-form-item.el-form-item .el-form-item__error {
+  padding-top: 2px !important;
+  font-size: 12px !important;
+}
+
+.fc-form-item__hint {
+  padding-top: 2px;
+  color: var(--app-text-tertiary, #999);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.fc-slider.el-slider {
+  width: 100%;
+}
+
+.fc-slider.el-slider.is-disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+// el-table 统一外观 (替代原 FcTable 薄封装).
+// 业务写法: <el-table class="fc-table" :data="rows" row-key="id" highlight-current-row>
+// 空态: <template #empty><FcEmpty /></template>
+.fc-table.el-table {
+  --el-table-border-color: var(--app-separator, #e5e5e5);
+  --el-table-header-bg-color: var(--app-bg-muted, #fafafa);
+  --el-table-row-hover-bg-color: var(--app-bg-muted, #f5f5f5);
+
+  border-radius: var(--app-radius-md, 8px);
+  overflow: hidden;
+}
+
+.fc-table.el-table th.el-table__cell {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text, #333);
+  background: var(--el-table-header-bg-color);
+}
+
+.fc-table.el-table td.el-table__cell {
+  font-size: 13px;
+  color: var(--app-text, #333);
+  padding: 8px 0;
+}
+
+.fc-table.el-table .el-table__row {
+  height: 48px;
+}

@@ -1,0 +1,6 @@
+id,name,size_bytes,mime,note
+1,quarterly-report.pdf,1048576,application/pdf,Q3 财报样例行
+2,team-photo.jpg,204800,image/jpeg,团队照片样例行
+3,/demo/hello.md,1024,text/markdown,单文件模式样例
+4,backup.tar.gz,52428800,application/gzip,大文件分块上传演示用
+5,plugin-todo.js,4096,text/javascript,动态插件示例（见动态插件方案）

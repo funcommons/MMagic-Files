@@ -1,0 +1,17 @@
+{
+  "name": "mmagic-plugin-filerobot-image-editor",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Filerobot 图片编辑器插件：裁剪/微调/滤镜/标注/水印等 8 Tab（方案 V1.0）",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "filerobot-image-editor": "5.0.0-beta.159"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.2"
+  }
+}

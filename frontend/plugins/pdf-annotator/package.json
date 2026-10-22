@@ -1,0 +1,19 @@
+{
+  "name": "mmagic-plugin-pdf-annotator",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "PDF 标注签批插件：pdf.js 覆盖层标注/签批/签名，pdf-lib 压平写回（方案 V1.0 P1）",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.10.38"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5",
+    "vite-node": "^6.0.0"
+  }
+}

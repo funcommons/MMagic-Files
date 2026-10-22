@@ -1,0 +1,6 @@
+// 入口样式（fc-web-sdk §1.4：品牌/主题 token 由 sdk theme.scss + 这三件套提供，
+// 与 frontend/src/styles 同源同值——sdk theme.scss 的 @use '@/styles/*' 依赖它们）
+@use "./variables";
+@use "./themes";
+@use "./app-aliases";
+@use "./global";

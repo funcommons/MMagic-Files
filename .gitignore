@@ -6,3 +6,8 @@
 
 # 系统
 .DS_Store
+
+# 前端动态插件：源码入库，构建产物不入库（本地/CI 构建——vite build 输出 public/plugins/）
+frontend/public/plugins/
+frontend/plugins/*/node_modules/
+frontend/plugins/*/pnpm-lock.yaml

@@ -1,0 +1,96 @@
+// _app-aliases.scss
+// 全局 --app-* 别名层: 把 --brand-* 映射到项目里 FcSidebar / FcMain / Header / Section
+// 等组件实际读取的 --app-* 变量. 对任意 data-brand 生效, 各品牌文件无需重复声明.
+//
+// 各品牌文件 (_apple.scss 等) 只负责定义 --brand-* token;
+// 这里的别名让所有品牌的 --brand-* 都能被组件消费.
+
+html[data-brand] {
+  // === FcSidebar ===
+  --app-sidebar-width: var(--brand-sidebar-width-default, 240px);
+  --app-sidebar-width-collapsed: var(--brand-sidebar-width-collapsed, 64px);
+  --app-sidebar-width-min: 200px;
+  --app-sidebar-width-max: 400px;
+  --app-sidebar-bg: var(--brand-sidebar-bg);
+  --app-sidebar-border-color: var(--brand-separator);
+  --app-sidebar-item-text: var(--brand-sidebar-text-regular);
+  --app-sidebar-item-hover-bg: var(--brand-sidebar-hover-bg);
+  --app-sidebar-item-active-bg: var(--brand-primary-gradient, var(--brand-primary));
+  --app-sidebar-item-active-text: var(--brand-sidebar-active-text);
+  --app-sidebar-divider-text: var(--brand-sidebar-text-secondary);
+  --app-sidebar-toggle-size: 32px;
+  --app-sidebar-item-height: 40px;
+  --app-sidebar-resize-handle-width: 4px;
+
+  // === FcMain ===
+  --app-main-bg: var(--brand-bg-page);
+  --app-main-padding-x: var(--app-block-pad);
+  --app-main-padding-y: var(--app-block-pad);
+  --app-main-block-gap: var(--app-block-mb);
+
+  // === Section (FcSection / TitledSection 等) ===
+  --app-section-bg: var(--brand-bg-card);
+  --app-section-border-color: var(--brand-separator);
+  --app-section-radius: var(--brand-radius-card);
+  --app-section-shadow: var(--brand-shadow-md);
+  --app-section-title-color: var(--brand-text-primary);
+  --app-section-desc-color: var(--brand-text-secondary);
+
+  // === FcHeader 默认 (各品牌可在自己文件里覆写) ===
+  --app-header-bg: var(--brand-bg-card);
+  --app-header-border-color: var(--brand-separator);
+  --app-header-shadow: none;
+
+  // === FcAvatar / FcTagGroup / FcContextMenu / FcImagePicker 等通用色 (业务层可覆写) ===
+  --app-color-danger: var(--el-color-danger, #ff3b30);
+  --app-color-success: var(--el-color-success, #67c23a);
+  --app-color-warning: var(--el-color-warning, #e6a23c);
+  --app-text-primary: var(--brand-text-primary, #1d1d1f);
+  --app-text-secondary: var(--brand-text-secondary, #6e6e73);
+  --app-text-tertiary: var(--brand-text-tertiary, #999);
+  --app-text-quaternary: var(--brand-text-quaternary, #aeaeb2);
+  --app-overlay-strong: rgba(0, 0, 0, 0.6);
+  --app-overlay-softer: rgba(0, 0, 0, 0.3);
+  --app-text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --app-primary: var(--brand-primary, #409eff);
+
+  // === card / separator / page / muted 别名 ===
+  --app-bg-card: var(--brand-bg-card);
+  --app-bg-page: var(--brand-bg-page);
+  --app-bg-muted: var(--brand-bg-muted);
+  --app-separator: var(--brand-separator);
+  --app-on-primary: var(--brand-on-primary, #fff);
+  --app-radius-card: var(--brand-radius-card, 16px);
+  --app-radius-sm: var(--brand-radius-sm, 8px);
+  --app-radius-md: var(--brand-radius-md, 12px);
+  --app-radius-lg: var(--brand-radius-lg, 16px);
+  --app-shadow-md: var(--brand-shadow-md, 0 1px 3px rgba(0, 0, 0, 0.05));
+  --app-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.15);
+
+  // === Legacy --color-* 别名层 ===
+  // 旧代码 (50+ 文件) 还在用 var(--color-primary) / var(--color-bg-card) 等
+  // legacy token. 重写 variables.scss 时这些被删了, 直接导致 selection / 部分
+  // 组件色解析为空 → 透明. 这里把所有 legacy --color-* 重新指向品牌 token,
+  // 让旧代码自动跟品牌走, 不用一次性改 63 个文件.
+  //
+  // 后续清理: 渐进把组件代码从 --color-* 迁到 --app-* / --el-*, 迁完即可删此块.
+  --color-primary: var(--app-primary);
+  --color-primary-light: var(--brand-primary-light, var(--app-primary));
+  --color-primary-lighter: var(--brand-primary-lighter, var(--app-primary));
+  --color-primary-lightest: var(--brand-primary-lightest, var(--app-primary));
+  --color-primary-dark: var(--brand-primary-dark, var(--app-primary));
+  --color-text-primary: var(--app-text-primary);
+  --color-text-secondary: var(--app-text-secondary);
+  --color-text-tertiary: var(--app-text-tertiary);
+  --color-text-quaternary: var(--app-text-quaternary);
+  --color-bg-page: var(--app-bg-page);
+  --color-bg-card: var(--app-bg-card);
+  --color-bg-elevated: var(--el-bg-color, var(--app-bg-card));
+  --color-bg-muted: var(--app-bg-muted);
+  --color-separator: var(--app-separator);
+  --color-separator-light: var(--el-border-color-extra-light, var(--app-separator));
+  --color-success: var(--app-color-success);
+  --color-warning: var(--app-color-warning);
+  --color-error: var(--app-color-danger);
+  --color-info: var(--app-primary);
+}

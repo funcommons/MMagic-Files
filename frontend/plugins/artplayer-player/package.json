@@ -1,0 +1,17 @@
+{
+  "name": "mmagic-plugin-artplayer-player",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Artplayer 媒体播放器插件：视频/音频打开方式增强（直链优先，方案 V1.0）",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "artplayer": "^5.2.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5"
+  }
+}

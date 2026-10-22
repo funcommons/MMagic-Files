@@ -1,0 +1,17 @@
+{
+  "name": "mmagic-plugin-pptx-viewer",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "PPTX 预览插件：pptx-preview（纯前端 DOM 复刻渲染，中上保真）——高保真路线 B（LibreOffice 转 PDF）留作部署升级项",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "pptx-preview": "1.0.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5"
+  }
+}
