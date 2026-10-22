@@ -11,7 +11,11 @@ const routes: RouteRecordRaw[] = [
     name: 'Home',
     component: () => import('@/views/Home.vue'),
     meta: { title: 'router.home' }
-  }
+  },
+  // 子路径挂载兜底（宿主 vendoring 形）: dist 以 --base=./ 构建挂宿主子路径（如 /mmfiles/）时,
+  // 入口路径非 '/' —— 无此兜底路由不匹配 = 整页空白。catch-all 渲染 Home 且不重定向
+  //（redirect 会改写地址栏到 /, 破坏相对资源解析）; hash 配置（#config/#file）与路径无关, 不受扰。
+  { path: '/:pathMatch(.*)*', name: 'EmbedFallback', component: () => import('@/views/Home.vue') }
 ]
 
 const router = createRouter({
