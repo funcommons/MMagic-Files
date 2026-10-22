@@ -2,6 +2,15 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/)。
 
+## [Unreleased]
+
+### 新增
+
+- **内置应用 html-viewer**：html/htm 默认打开应用（注册序先于 code-editor）——净化式沙箱预览
+  （sandbox="allow-scripts" + srcdoc，剥脚本面），一切跳转/打开统一代理为「提示确认后新标签页打开」
+  （会话级「不再询问该站点」信任表；非法 scheme 拒绝并上报）；code-editor 源码态与 html-editor
+  插件三态编辑经「打开方式」可达。与 html-editor 插件预览态同口径（消息命名空间独立互不串台）。
+
 ## [1.0.0] — 2026-10-22
 
 首个正式版。项目由 MMagic-Files 更名 **mmagix-files**（协议命名空间 `ns` 由 `mmagic-files` 同步更名 `mmagix-files`——首版无兼容包袱）。
