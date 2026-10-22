@@ -1,5 +1,5 @@
 /**
- * Univer 文档插件（MMagic-Files 动态应用）：xlsx/xls → Univer Sheets 编辑；docx → Univer Docs 编辑。
+ * Univer 文档插件（mmagix-files 动态应用）：xlsx/xls → Univer Sheets 编辑；docx → Univer Docs 编辑。
  * 契约：`export activate(sdk)` + sdk.registerApp(AppDefinition)（loader.ts 契约 §二）；
  * 保存走 ctx.putObject + ctx.notify('saved')，与内置应用同口径（Ctrl+S / 工具栏钮）。
  * 保真边界：SheetJS/mammoth 桥保值+公式+段落（复杂样式/图表不在桥内；官方高保真 exchange 为 Univer Pro）。

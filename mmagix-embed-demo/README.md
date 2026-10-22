@@ -1,10 +1,10 @@
-# mmxfiles-embed-demo — MMagic-Files 宿主接入演示
+# mmagixfiles-embed-demo — mmagix-files 宿主接入演示
 
-演示如何把 [MMagic-Files](../frontend/)（纯前端、S3 直连的文件工作台 SPA）通过
+演示如何把 [mmagix-files](../frontend/)（纯前端、S3 直连的文件工作台 SPA）通过
 **iframe + `#config` / `#file` fragment + postMessage JSSDK** 嵌入第三方宿主页面。
 工程形态 copy 自 `opencut-embed-demo`（Vue 3 + Element Plus + Pinia + vue-router +
 Vite + SCSS 品牌令牌），**composable 为裸 `window.postMessage` 实现，零 npm SDK 依赖**，
-可直接把 `src/composables/useMmxFilesClient.ts` 拷进你自己的项目。
+可直接把 `src/composables/useMmagixFilesClient.ts` 拷进你自己的项目。
 
 ## 快速开始（两个终端）
 
@@ -37,7 +37,7 @@ pnpm dev          # http://localhost:5200
 - 症状极具迷惑性：`ready` 事件**收得到**（那个方向只看发送方 targetOrigin），
   而宿主发出的**每一条命令都石沉大海，全部 4004 超时**；
 - 本 demo 的 `mount()` 已自动把 `window.location.origin` 追加进白名单
-  （`withHostOrigin()`，见 useMmxFilesClient.ts），换域部署无需改代码。
+  （`withHostOrigin()`，见 useMmagixFilesClient.ts），换域部署无需改代码。
 
 其他铁律：发送 targetOrigin 一律取 iframe 精确 origin（**禁 `*`**）；
 配置只走 fragment（**禁 query**）；拼链接只用 `encodeURIComponent`，
@@ -118,8 +118,8 @@ pnpm s3:seed   # 读 .env.local，灌入演示种子对象
 
 | 项 | opencut-embed-demo | 本 demo |
 | --- | --- | --- |
-| 被嵌应用 | OpenCut 编辑器（同机反代 `/opencut`） | MMagic-Files SPA（跨源直连 `http://localhost:5199/`） |
-| SDK | `@opencut/embed-sdk`（vite alias 源码） | 协议层无 SDK——`useMmxFilesClient.ts` 裸 postMessage；UI 层已接 fc-web-sdk（`src/components/sdk`，Fc* 组件 + FcThemeProvider/FcThemeSwitcher，符合《fc-web-sdk》规范） |
+| 被嵌应用 | OpenCut 编辑器（同机反代 `/opencut`） | mmagix-files SPA（跨源直连 `http://localhost:5199/`） |
+| SDK | `@opencut/embed-sdk`（vite alias 源码） | 协议层无 SDK——`useMmagixFilesClient.ts` 裸 postMessage；UI 层已接 fc-web-sdk（`src/components/sdk`，Fc* 组件 + FcThemeProvider/FcThemeSwitcher，符合《fc-web-sdk》规范） |
 | 品牌 | 9 个 | 2 个（bend / aigc） |
 | 页面 | Overview + EmbedPlay | Overview + EmbedPlay（工作台）+ FilePlay（单文件） |
 | 端口 | 9340 | 5200（strictPort） |

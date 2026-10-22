@@ -23,7 +23,7 @@ test('warmup：预热重依赖并留存工作台基线截图', async ({ page }) 
 
   // mermaid（README.md 含 mermaid 围栏）
   await page.locator('[data-testid="row"]', { hasText: 'README.md' }).dblclick()
-  await expect(page.locator('.ws__preview-host h1')).toContainText('欢迎使用 MMagic-Files')
+  await expect(page.locator('.ws__preview-host h1')).toContainText('欢迎使用 mmagix-files')
 
   // docx-preview（非法 zip → 降级提示，但动态 import 已触发）
   await page.locator('[data-testid="row"]', { hasText: 'report.docx' }).dblclick()

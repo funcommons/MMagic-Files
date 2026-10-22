@@ -1,4 +1,4 @@
-# MMagic-Files 动态插件样例（examples/plugins/）
+# mmagix-files 动态插件样例（examples/plugins/）
 
 《documents/动态插件样例.md》三个样例的**可运行正本**——零构建依赖的纯 ES module，
 `export function activate(sdk)` 为唯一约定入口（契约：《documents/动态插件方案.md》V1.1 §二）。

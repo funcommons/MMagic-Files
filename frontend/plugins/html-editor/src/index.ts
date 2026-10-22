@@ -1,5 +1,5 @@
 /**
- * HTML 编辑器插件（MMagic-Files 动态应用）：三态（源码/可视/预览）+ 图片 base64 单体化 +
+ * HTML 编辑器插件（mmagix-files 动态应用）：三态（源码/可视/预览）+ 图片 base64 单体化 +
  * 预览跳转新 tab 代理（方案 v2）。
  * 契约：`export activate(sdk, options?)` + sdk.registerApp（loader.ts 契约 §二；options=v1.1 参数通道）。
  * 不抢内置渲染器默认位：actions=['edit'] 走「打开方式」。

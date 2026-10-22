@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Univer 文档插件：xlsx/xls（Sheets）+ docx（Docs）编辑，注册为 MMagic-Files 动态应用",
+  "description": "Univer 文档插件：xlsx/xls（Sheets）+ docx（Docs）编辑，注册为 mmagix-files 动态应用",
   "scripts": {
     "build": "vite build"
   },

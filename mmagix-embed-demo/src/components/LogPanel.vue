@@ -2,7 +2,7 @@
 // 协议日志面板（EmbedPlay / FilePlay 共用；形态 copy 自 opencut-embed-demo 日志区）
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import type { LogEntry } from "@/composables/useMmxFilesClient";
+import type { LogEntry } from "@/composables/useMmagixFilesClient";
 
 const props = defineProps<{ logs: LogEntry[]; title?: string }>();
 

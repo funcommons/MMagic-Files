@@ -22,7 +22,7 @@ test.describe('业务线3：渲染器预览', () => {
     await openWorkspace(page)
     await openRow(page, 'README.md')
     const stage = page.locator('.ws__preview-host')
-    await expect(stage.locator('h1')).toContainText('欢迎使用 MMagic-Files')
+    await expect(stage.locator('h1')).toContainText('欢迎使用 mmagix-files')
     await expect(stage.locator('strong')).toContainText('加粗')
     const link = stage.locator('a[href="https://example.com/mmagic"]')
     await expect(link).toHaveAttribute('target', '_blank')

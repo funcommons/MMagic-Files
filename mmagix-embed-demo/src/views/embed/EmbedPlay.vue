@@ -8,10 +8,10 @@ import LogPanel from "@/components/LogPanel.vue";
 import { OEM_CONFIG } from "@/config/oem";
 import {
   buildConfigUrl,
-  useMmxFilesClient,
+  useMmagixFilesClient,
   CONFIG_VERSION,
   type MmxWorkspaceConfig,
-} from "@/composables/useMmxFilesClient";
+} from "@/composables/useMmagixFilesClient";
 
 const { t } = useI18n();
 
@@ -23,7 +23,7 @@ const {
   call,
   destroy,
   on,
-} = useMmxFilesClient();
+} = useMmagixFilesClient();
 
 // ── 浏览器内全屏（顶级文档）：iframe 发 previewFullscreen 事件，宿主把舞台容器铺满本页视口 ──
 const stageFs = ref(false);

@@ -1,5 +1,5 @@
 /**
- * Artplayer 媒体播放器插件（MMagic-Files 动态应用）：视频/音频「打开方式」增强。
+ * Artplayer 媒体播放器插件（mmagix-files 动态应用）：视频/音频「打开方式」增强。
  * 契约：`export activate(sdk, options?)` + sdk.registerApp（options=v1.1 参数通道）。
  * 不抢内置 video-player/audio-player 的默认 view 位——registry 默认解析按**注册序**（builtins 先入册
  * 恒居首），本插件后入册仅进「打开方式」菜单（actions:['preview'] 归类为查看项）。

@@ -1,5 +1,5 @@
 /**
- * Markdown 编辑器插件（MMagic-Files 动态应用）：md/markdown 编辑 × 内置 mermaid × 三形态。
+ * Markdown 编辑器插件（mmagix-files 动态应用）：md/markdown 编辑 × 内置 mermaid × 三形态。
  * 契约：`export activate(sdk, options?)` + sdk.registerApp（loader.ts 契约 §二；options=v1.1 参数通道）。
  * 不抢内置 markdown-renderer 的默认 view 位：actions=['edit'] 走「打开方式」。
  * 保存链与内置应用同口径：ctx.putObject + ctx.notify('saved')（Ctrl+S / 工具栏钮）。

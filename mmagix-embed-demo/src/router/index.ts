@@ -42,7 +42,7 @@ const router = createRouter({
 router.afterEach((to) => {
   // fc-web-sdk §2.1：title 走 i18n（meta.title 为词典 key；router 层在 setup 外，用 global scope）
   const meta = to.meta as { title?: string };
-  const app = "MMagic-Files";
+  const app = "mmagix-files";
   document.title = meta.title ? `${i18n.global.t(meta.title)} · ${app}` : app;
 });
 

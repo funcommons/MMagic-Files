@@ -124,7 +124,7 @@ export default {
     resize: 'Drag to resize',
   },
   app: {
-    name: 'MMagic Files',
+    name: 'Magix Files',
     'markdown-too-large': 'Document too large (>{limit}) — download to view',
     // —— markdown-editor plugin ——
     'markdown-editor': 'Markdown editor',
@@ -660,7 +660,7 @@ export default {
     },
   },
   home: {
-    title: 'MMagic Files',
+    title: 'Magix Files',
     subtitle: 'Frontend infrastructure is ready: Vue3 + Vite + Element Plus + Pinia + vue-i18n + Fc* SDK component library, with multi-brand theming enabled.',
     'toggle-locale': '切换语言 / Switch Language',
   },

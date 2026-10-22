@@ -5,7 +5,7 @@
  */
 
 /** 消息命名空间——非本命名空间消息一律忽略 */
-export const NS = 'mmagic-files' as const
+export const NS = 'mmagix-files' as const
 
 /** 协议主版本（信封 v；插件 requiresSdk 比较对象） */
 export const PROTOCOL_VERSION = 1 as const

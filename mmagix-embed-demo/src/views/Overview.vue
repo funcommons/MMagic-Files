@@ -16,8 +16,8 @@ const pick = (v: L) => (locale.value === "en-US" ? v.en : v.zh);
 // 长富文本走组件内常量而非 vue-i18n 词典——正文含字面量 `{}`（信封示例），
 // 会与 vue-i18n 具名插值语法冲突；表格 cell 同款 L 模式，静态文档不进词典。
 const heroHtml: L = {
-  zh: "MMagic-Files 是<strong>纯前端、S3 直连</strong>的文件工作台（无业务后端）：凭证即配置，配置走 URL fragment（<code>#config=</code> 工作台 / <code>#file=</code> 单文件，二者互斥）。本项目演示消费方视角的完整接入：iframe 嵌入、裸 <code>postMessage</code> 协议驱动、单文件只读预览。契约正本见仓库 <code>documents/JSSDK 接口文档.md</code>。",
-  en: "MMagic-Files is a <strong>pure-frontend, S3-direct</strong> file workspace (no business backend): credentials as config, config via URL fragment (<code>#config=</code> workspace / <code>#file=</code> single file, mutually exclusive). This project demonstrates full integration from the consumer side: iframe embed, raw <code>postMessage</code> protocol, single-file preview. Contract source of truth: <code>documents/JSSDK 接口文档.md</code>.",
+  zh: "mmagix-files 是<strong>纯前端、S3 直连</strong>的文件工作台（无业务后端）：凭证即配置，配置走 URL fragment（<code>#config=</code> 工作台 / <code>#file=</code> 单文件，二者互斥）。本项目演示消费方视角的完整接入：iframe 嵌入、裸 <code>postMessage</code> 协议驱动、单文件只读预览。契约正本见仓库 <code>documents/JSSDK 接口文档.md</code>。",
+  en: "mmagix-files is a <strong>pure-frontend, S3-direct</strong> file workspace (no business backend): credentials as config, config via URL fragment (<code>#config=</code> workspace / <code>#file=</code> single file, mutually exclusive). This project demonstrates full integration from the consumer side: iframe embed, raw <code>postMessage</code> protocol, single-file preview. Contract source of truth: <code>documents/JSSDK 接口文档.md</code>.",
 };
 const step1Html: L = {
   zh: "配置 JSON → <code>encodeURIComponent</code> → 拼到 <code>https://files.example.com/#config=…</code>。<b>只走 fragment，禁 query</b>（fragment 不到服务端/代理日志）；解析端用 <code>decodeURIComponent</code> 还原——对端不用 URLSearchParams，因为它会把 <code>+</code> 解成空格。建议整段 ≤8KB。",
@@ -28,8 +28,8 @@ const step2Html: L = {
   en: '<code>&lt;iframe src="…#config=…" allow="clipboard-write"&gt;</code>. <b class="warn">#1 pitfall</b>: <code>security.allowedOrigins</code> must include the <b>host page origin</b> (this demo = <code>window.location.origin</code>, i.e. <code>http://localhost:5200</code> in dev) — otherwise the iframe silently drops host messages per the whitelist; symptom: ready received, every command 4004 timeout. The demo <code>mount()</code> appends it automatically.',
 };
 const step3Html: L = {
-  zh: "等 <code>evt ready</code>（10s 超时）后即可发 <code>{ ns:'mmagic-files', v:1, kind:'cmd', id, name, payload }</code>（targetOrigin=iframe 精确 origin，禁 <code>*</code>）；reply 按 <code>id</code> 匹配，<code>ok:false</code> 携 §七错误码。完整封装见 <code>src/composables/useMmxFilesClient.ts</code>（零 npm 依赖，可直接拷走）。",
-  en: "After <code>evt ready</code> (10s timeout) send <code>{ ns:'mmagic-files', v:1, kind:'cmd', id, name, payload }</code> (targetOrigin = exact iframe origin, never <code>*</code>); replies match by <code>id</code>, <code>ok:false</code> carries a §7 error code. Full wrapper: <code>src/composables/useMmxFilesClient.ts</code> (zero npm deps, copy as-is).",
+  zh: "等 <code>evt ready</code>（10s 超时）后即可发 <code>{ ns:'mmagix-files', v:1, kind:'cmd', id, name, payload }</code>（targetOrigin=iframe 精确 origin，禁 <code>*</code>）；reply 按 <code>id</code> 匹配，<code>ok:false</code> 携 §七错误码。完整封装见 <code>src/composables/useMmagixFilesClient.ts</code>（零 npm 依赖，可直接拷走）。",
+  en: "After <code>evt ready</code> (10s timeout) send <code>{ ns:'mmagix-files', v:1, kind:'cmd', id, name, payload }</code> (targetOrigin = exact iframe origin, never <code>*</code>); replies match by <code>id</code>, <code>ok:false</code> carries a §7 error code. Full wrapper: <code>src/composables/useMmagixFilesClient.ts</code> (zero npm deps, copy as-is).",
 };
 const fileNoteHtml: L = {
   zh: "<code>#file</code> 单文件模式（互斥二选一）：<code>{ v, source:{ url, method?, body?, headers? }, save?, name?, appearance?, security? }</code>——只读=无 <code>save</code> 段；可写=有 <code>save:{ method:'PUT'|'POST', url }</code>。命令子集仅 <code>setTheme / setLocale / getInfo / destroy</code>（其余=4305）。",

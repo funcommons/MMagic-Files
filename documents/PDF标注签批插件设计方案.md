@@ -1,4 +1,4 @@
-# MMagic-Files PDF 标注签批插件设计方案（pdf.js 覆盖层 + pdf-lib 写回）
+# mmagix-files PDF 标注签批插件设计方案（pdf.js 覆盖层 + pdf-lib 写回）
 
 ## 〇、头表
 

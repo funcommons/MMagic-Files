@@ -124,7 +124,7 @@ export default {
     resize: '拖拽调整大小',
   },
   app: {
-    name: 'MMagic Files',
+    name: 'Magix Files',
     'markdown-too-large': '文档过大（>{limit}），请下载后查看',
     // —— markdown-editor 插件（方案：动态插件-markdown-editor）——
     'markdown-editor': 'Markdown 编辑',
@@ -660,7 +660,7 @@ export default {
     },
   },
   home: {
-    title: 'MMagic Files',
+    title: 'Magix Files',
     subtitle: '前端基建就绪：Vue3 + Vite + Element Plus + Pinia + vue-i18n + Fc* SDK 组件库，多品牌多主题体系已启用。',
     'toggle-locale': '切换语言 / Switch Language',
   },

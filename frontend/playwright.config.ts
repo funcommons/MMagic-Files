@@ -6,7 +6,7 @@
  */
 import { defineConfig } from '@playwright/test'
 
-const REPO = '/Users/justin/codes/funcommons/MMagic-Files'
+const REPO = '/Users/justin/codes/funcommons/mmagix-files'
 
 export default defineConfig({
   testDir: 'e2e',

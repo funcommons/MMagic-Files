@@ -112,7 +112,7 @@ frontend/plugins/markdown-editor/
    └─ render.ts     # DOM 组装：工具栏/双窗/形态机/防抖联动/保存链/savedState
 ```
 
-宿主侧触点（契约扩展）：`sdk/types.ts`、`plugins/loader.ts`、`main.ts`（3 处透传）、`sdk/handlers.ts`（registerApp payload）、`locales/{zh-CN,en-US}.ts`（新增 mode/label 词表）、演示端 `useMmxFilesClient.ts` 类型。
+宿主侧触点（契约扩展）：`sdk/types.ts`、`plugins/loader.ts`、`main.ts`（3 处透传）、`sdk/handlers.ts`（registerApp payload）、`locales/{zh-CN,en-US}.ts`（新增 mode/label 词表）、演示端 `useMmagixFilesClient.ts` 类型。
 
 ## 六、施工步骤（每步 ≤1000 行，测试先行）
 

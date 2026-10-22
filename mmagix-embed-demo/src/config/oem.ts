@@ -7,9 +7,9 @@ function env(name: string): string {
 
 export const OEM_CONFIG = {
   /** 产品名（专有名词，不随 locale；页面副标题走 i18n demo.app.subtitle） */
-  appName: "MMagic-Files",
+  appName: "mmagix-files",
   /**
-   * 被嵌 SPA（MMagic-Files，本仓 frontend/）地址。
+   * 被嵌 SPA（mmagix-files，本仓 frontend/）地址。
    * 联调口径：frontend 以 5199 起（`pnpm exec vite --port 5199 --strictPort`，与
    * frontend/playwright.config.ts 同端口）；生产换你的部署域。
    */

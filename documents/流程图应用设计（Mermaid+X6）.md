@@ -1,4 +1,4 @@
-# MMagic-Files 流程图应用设计（Mermaid 源 + X6 编辑）
+# mmagix-files 流程图应用设计（Mermaid 源 + X6 编辑）
 
 ## 〇、头表
 

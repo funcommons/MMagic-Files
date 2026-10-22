@@ -129,7 +129,7 @@ export default {
       autoOrigin: '← host window.location.origin auto-added to allowedOrigins',
       panelToggle: 'Collapse / expand control panel (embed fills width & height)',
       logToggle: 'Protocol log',
-      iframeTitle: 'MMagic-Files workspace',
+      iframeTitle: 'mmagix-files workspace',
       uploadHint: 'Pick files (no upload, queue only)',
       uploadWithFiles: 'uploadFiles (files×{n})',
       uploadEmpty: 'uploadFiles (opens iframe picker)',
@@ -199,7 +199,7 @@ export default {
       memDemoNote: 'target=memory + appId + appOptions: file goes into the iframe in-memory store (no S3 write) and opens with the chosen app/options. App options are consumed by the app itself (md editor supports initialMode=preview/source/split); others ignore them. Load is one click: it mounts automatically, and if already mounted it unmounts and remounts (unchecked plugins are initialized on demand at this point).',
       eventsNote0: 'Single-file event subset: ',
       eventsNote1: ' (fileChanged fires after a successful save write-back, action=\'put\').',
-      iframeTitle: 'MMagic-Files single-file mode',
+      iframeTitle: 'mmagix-files single-file mode',
       msg: {
         needSource: 'source URL required',
         destroyOk: 'destroy ✓',
@@ -208,7 +208,7 @@ export default {
       },
     },
     ov: {
-      heroTitle: 'Embed MMagic-Files into your product',
+      heroTitle: 'Embed mmagix-files into your product',
       step1Title: '① Build the config fragment',
       step2Title: '② iframe embed',
       step3Title: '③ postMessage driving',

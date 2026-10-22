@@ -1,7 +1,7 @@
 # MMX Demo · 单文件模式渲染样例
 
-这是一个由 **mmxfiles-embed-demo** 自带的 Markdown 样例，经 `#file=` fragment
-装载进 MMagic-Files 单文件模式（只读预览）。
+这是一个由 **mmagixfiles-embed-demo** 自带的 Markdown 样例，经 `#file=` fragment
+装载进 mmagix-files 单文件模式（只读预览）。
 
 ## 能看到什么
 

@@ -26,7 +26,7 @@ test.describe('业务线8：单文件模式（#file）', () => {
     console.log(`[file-01] 只读 #file 打开后源对象 GET 次数=${got.length}`)
     expect(got.length, '单文件只读模式应拉取并渲染 source 内容（用户手册「预览应用渲染」）').toBeGreaterThan(0)
     const stage = frame.locator('.ws__preview-host')
-    await expect(stage.locator('h1')).toContainText('欢迎使用 MMagic-Files', { timeout: 30_000 })
+    await expect(stage.locator('h1')).toContainText('欢迎使用 mmagix-files', { timeout: 30_000 })
     await shot(page, 'fix-single-file-readonly-preview.png')
     console.log('[file-01] 修复验证：只读 #file 由 markdown-renderer 渲染源内容（GET>0 且 DOM 可见）')
     console.log('[file-01] console 证据：\n' + consoleEvidence(cap))

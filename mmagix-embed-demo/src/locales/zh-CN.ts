@@ -133,7 +133,7 @@ export default {
       autoOrigin: '← 宿主 window.location.origin 已自动加入 allowedOrigins',
       panelToggle: '收起 / 展开控制面板（嵌入区不限高宽）',
       logToggle: '协议日志',
-      iframeTitle: 'MMagic-Files 工作台',
+      iframeTitle: 'mmagix-files 工作台',
       uploadHint: '选文件（不上传，仅入列）',
       uploadWithFiles: 'uploadFiles（files×{n}）',
       uploadEmpty: 'uploadFiles（拉起 iframe 选择器）',
@@ -203,7 +203,7 @@ export default {
       memDemoNote: 'target=memory + appId + appOptions：文件入 iframe 内存 store（不落 S3），按指定应用+参数打开预览；应用参数由应用自决消费（md 编辑器支持 initialMode=preview/source/split），其它应用忽略。「加载」一键直达：未装载自动装，已装载先卸载重装（未勾选的插件此时按需初始化）。',
       eventsNote0: '单文件事件子集：',
       eventsNote1: '（fileChanged 于 save 回写成功后触发，action=\'put\'）。',
-      iframeTitle: 'MMagic-Files 单文件模式',
+      iframeTitle: 'mmagix-files 单文件模式',
       msg: {
         needSource: 'source URL 必填',
         destroyOk: 'destroy ✓',
@@ -212,7 +212,7 @@ export default {
       },
     },
     ov: {
-      heroTitle: '把 MMagic-Files 嵌入你的产品',
+      heroTitle: '把 mmagix-files 嵌入你的产品',
       step1Title: '① 生成配置片段',
       step2Title: '② iframe 嵌入',
       step3Title: '③ postMessage 驱动',

@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import type { FrameLocator, Page } from '@playwright/test'
 import { expect } from '@playwright/test'
 
-export const REPORT_DIR = '/Users/justin/codes/funcommons/MMagic-Files/test-report/2026-10-09-01'
+export const REPORT_DIR = '/Users/justin/codes/funcommons/mmagix-files/test-report/2026-10-09-01'
 export const SHOT_DIR = `${REPORT_DIR}/screenshots`
 
 fs.mkdirSync(SHOT_DIR, { recursive: true })

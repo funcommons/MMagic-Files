@@ -7,10 +7,10 @@ import LogPanel from "@/components/LogPanel.vue";
 import { OEM_CONFIG } from "@/config/oem";
 import {
   buildFileUrl,
-  useMmxFilesClient,
+  useMmagixFilesClient,
   CONFIG_VERSION,
   type MmxSingleFileConfig,
-} from "@/composables/useMmxFilesClient";
+} from "@/composables/useMmagixFilesClient";
 
 const { t } = useI18n();
 
@@ -22,7 +22,7 @@ const {
   call,
   destroy,
   log,
-} = useMmxFilesClient();
+} = useMmagixFilesClient();
 
 // ── #file 配置表单 ──
 const form = reactive({

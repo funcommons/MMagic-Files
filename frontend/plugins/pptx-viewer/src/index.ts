@@ -1,5 +1,5 @@
 /**
- * PPTX 预览插件（MMagic-Files 动态应用）：pptx-preview 纯前端渲染（中上保真）。
+ * PPTX 预览插件（mmagix-files 动态应用）：pptx-preview 纯前端渲染（中上保真）。
  * 契约：`export activate(sdk, options?)` + sdk.registerApp（loader.ts 契约 §二；html-editor 同口径）。
  * 定位（2026-10-21 决策）：pptx 是办公三件套唯一真缺口（docx/xlsx 内置+univer 已覆盖）——
  * 独立单职责插件（不做大杂烩 office-preview：4/6 类型重复建设 + 旧 doc/ppt 二进制纯前端无解）。

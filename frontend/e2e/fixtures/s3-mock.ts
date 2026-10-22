@@ -283,7 +283,7 @@ export const TINY_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
 
 export const README_MD = [
-  '# 欢迎使用 MMagic-Files',
+  '# 欢迎使用 mmagix-files',
   '',
   '这是 **加粗** 与 *斜体* 文本。',
   '',

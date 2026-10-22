@@ -1,4 +1,4 @@
-# MMagic-Files JSSDK 接口文档
+# mmagix-files JSSDK 接口文档
 
 ## 〇、头表
 
@@ -14,7 +14,7 @@
 ## 一、概述
 
 - 通道：`window.postMessage` 双向（宿主页面 ⇄ iframe / window.open 独立窗——通道自动适配 parent/opener，安全规则同一套）
-- 消息命名空间：`ns: "mmagic-files"`——非本命名空间消息一律忽略
+- 消息命名空间：`ns: "mmagix-files"`——非本命名空间消息一律忽略
 - 方向一（宿主→文件服务）= **command**；方向二（文件服务→宿主）= **event**；对每条 command 有对应 **ack/reply**
 - 安全规则（双向强制）：发送方精确 `targetOrigin`（禁 `*`）；接收方校验 `event.origin ∈ security.allowedOrigins`（或文件服务自身域）——不符即静默丢弃
 
@@ -22,7 +22,7 @@
 
 ```ts
 interface Envelope<P = unknown> {
-  ns: 'mmagic-files'
+  ns: 'mmagix-files'
   v: 1                      // 协议版本
   kind: 'cmd' | 'evt' | 'reply'
   id: string                // uuid；reply 携带对应 cmd 的 id
@@ -33,7 +33,7 @@ interface Envelope<P = unknown> {
 }
 ```
 
-- 宿主侧持有 `sdk` 句柄：`mmagic = new MMagicFilesSDK(...)`——SDK 内建信封/序号/超时/origin 校验，下文 API 均为其方法。构造**双形态**：iframe=`new MMagicFilesSDK(iframeEl, opts)`；window.open 独立窗=`new MMagicFilesSDK(winRef, opts)`（`winRef`=window.open 返回值）——origin 校验规则同一套
+- 宿主侧持有 `sdk` 句柄：`mmagic = new MMagixFilesSDK(...)`——SDK 内建信封/序号/超时/origin 校验，下文 API 均为其方法。构造**双形态**：iframe=`new MMagixFilesSDK(iframeEl, opts)`；window.open 独立窗=`new MMagixFilesSDK(winRef, opts)`（`winRef`=window.open 返回值）——origin 校验规则同一套
 - 命令超时：默认 **10s**，SDK 构造可配 `timeoutMs`；超时 promise reject **4004 TIMEOUT**（`destroy` 等本地命令同规则，不豁免）
 
 ## 三、握手与生命周期
@@ -121,8 +121,8 @@ iframe 加载 ──► evt: ready {sdkVersion, protocolVersion, configSummary} 
 ## 八、类型定义与最小接入示例
 
 ```ts
-// 宿主侧完整接入（SDK 由 MMagic-Files dist 附带 UMD/ESM 包）
-const mmagic = new MMagicFilesSDK(document.getElementById('mmf')!, {
+// 宿主侧完整接入（SDK 由 mmagix-files dist 附带 UMD/ESM 包）
+const mmagic = new MMagixFilesSDK(document.getElementById('mmf')!, {
   allowedOrigin: 'https://files.mmagic.app',
   // timeoutMs: 10_000,   // 命令超时（默认 10s）
 })
@@ -141,7 +141,7 @@ const { appId } = await mmagic.registerApp({
 mmagic.on('error', ({ code }) => console.warn('mmagic error', code))
 ```
 
-类型包：`@mmagic-files/sdk`（dist 附带 `.d.ts`——`Envelope`/`AppManifest`/`Ctx`/事件与命令全量类型，协议文档与类型同版本发布）。`AppManifest` 规范字段见《动态插件方案.md》§二（含 `requiresSdk` 版本协商；经 registerApp 通道时 manifest 内含于插件 js，不经消息传输）。
+类型包：`@mmagix-files/sdk`（dist 附带 `.d.ts`——`Envelope`/`AppManifest`/`Ctx`/事件与命令全量类型，协议文档与类型同版本发布）。`AppManifest` 规范字段见《动态插件方案.md》§二（含 `requiresSdk` 版本协商；经 registerApp 通道时 manifest 内含于插件 js，不经消息传输）。
 
 ## 九、版本兼容纪律
 

@@ -1,5 +1,5 @@
 /**
- * useMmxFilesClient —— MMagic-Files 宿主侧接入封装（裸 window.postMessage，零 npm SDK 依赖）
+ * useMmagixFilesClient —— mmagix-files 宿主侧接入封装（裸 window.postMessage，零 npm SDK 依赖）
  *
  * 协议正本（只读参照，本文件常量/形状逐字段镜像，改协议须两处同步）：
  *   - frontend/src/sdk/types.ts      Envelope / WorkspaceConfig / SingleFileConfig / 全部 payload
@@ -31,12 +31,12 @@
 import { onBeforeUnmount, ref, shallowRef } from "vue";
 
 // ── 协议常量（镜像 frontend/src/sdk/constants.ts）──
-export const NS = "mmagic-files" as const;
+export const NS = "mmagix-files" as const;
 export const PROTOCOL_VERSION = 1 as const;
 export const CONFIG_VERSION = 1 as const;
 export const DEFAULT_TIMEOUT_MS = 10_000;
 
-/** iframe（MMagic-Files SPA）缺省地址：本仓 frontend/ 以 5199 端口起 dev（同 e2e 口径） */
+/** iframe（mmagix-files SPA）缺省地址：本仓 frontend/ 以 5199 端口起 dev（同 e2e 口径） */
 export const DEFAULT_FILES_BASE = "http://localhost:5199/";
 
 // ── 配置类型（镜像 frontend/src/sdk/types.ts 的宿主关心的子集）──
@@ -192,7 +192,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// ───────────────────────── 协议层：createMmxFilesHost ─────────────────────────
+// ───────────────────────── 协议层：createMmagixFilesHost ─────────────────────────
 
 export type MmxEventHandler = (payload: unknown) => void;
 export type MmxEventName =
@@ -203,7 +203,7 @@ export type MmxEventName =
   | "fileChanged" | "expired" | "error"
   | "previewFullscreen";
 
-export interface MmxFilesHostOptions {
+export interface MmagixFilesHostOptions {
   /** 已存在的 <iframe> 元素（src 由本工厂写入） */
   iframe: HTMLIFrameElement;
   /** SPA 基址（缺省 http://localhost:5199/）；决定 iframe origin 与 targetOrigin */
@@ -218,7 +218,7 @@ export interface MmxFilesHostOptions {
   onLog?: (text: string, ok: boolean) => void;
 }
 
-export interface MmxFilesHost {
+export interface MmagixFilesHost {
   /** 实际装载的 iframe src（#config/#file fragment 全文） */
   readonly url: string;
   /** iframe 精确 origin（= 收包 event.origin 白名单 + 发包 targetOrigin） */
@@ -240,10 +240,10 @@ export interface MmxFilesHost {
 /**
  * 裸 postMessage 宿主端实现：
  *  1. withHostOrigin 注入宿主 origin → buildConfigUrl/buildFileUrl 拼 fragment → 写 iframe.src
- *  2. window.addEventListener('message')，只认 ns=mmagic-files 且 event.origin===iframe origin
+ *  2. window.addEventListener('message')，只认 ns=mmagix-files 且 event.origin===iframe origin
  *  3. 等 evt ready（10s 超时）；reply 按 cmd id 匹配；事件派发给订阅者 + onEvent 总回调
  */
-export function createMmxFilesHost(options: MmxFilesHostOptions): MmxFilesHost {
+export function createMmagixFilesHost(options: MmagixFilesHostOptions): MmagixFilesHost {
   const { iframe, onEvent, onLog } = options;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const baseUrl = options.baseUrl ?? DEFAULT_FILES_BASE;
@@ -347,7 +347,7 @@ export function createMmxFilesHost(options: MmxFilesHostOptions): MmxFilesHost {
   iframe.src = url;
   window.addEventListener("message", onMessage);
 
-  const host: MmxFilesHost = {
+  const host: MmagixFilesHost = {
     url,
     iframeOrigin,
     ready,
@@ -430,7 +430,7 @@ export function createMmxFilesHost(options: MmxFilesHostOptions): MmxFilesHost {
   return host;
 }
 
-// ───────────────────────── Vue 层：useMmxFilesClient ─────────────────────────
+// ───────────────────────── Vue 层：useMmagixFilesClient ─────────────────────────
 
 export type EmbedStatus = "idle" | "mounting" | "ready" | "error";
 
@@ -451,13 +451,13 @@ const PAYLOAD_PREVIEW_LEN = 160;
  * Vue 封装：状态机 idle/mounting/ready/error + 日志面板 + 演示动作。
  * EmbedPlay（工作台）/FilePlay（单文件）共用；组件卸载自动 destroy。
  */
-export function useMmxFilesClient() {
+export function useMmagixFilesClient() {
   const iframeRef = ref<HTMLIFrameElement | null>(null);
   const status = ref<EmbedStatus>("idle");
   const errorText = ref("");
   const logs = ref<LogEntry[]>([]);
   const readyInfo = shallowRef<MmxReadyPayload | null>(null);
-  let host: MmxFilesHost | null = null;
+  let host: MmagixFilesHost | null = null;
   let lastProgressLogAt = 0;
 
   function log(text: string, ok = true): void {
@@ -510,7 +510,7 @@ export function useMmxFilesClient() {
     errorText.value = "";
     log(`mounting iframe → ${originOf(baseUrl ?? DEFAULT_FILES_BASE)} …`);
     try {
-      const h = createMmxFilesHost({
+      const h = createMmagixFilesHost({
         iframe: iframeRef.value,
         config,
         baseUrl,
@@ -546,7 +546,7 @@ export function useMmxFilesClient() {
     }
   }
 
-  function requireHost(): MmxFilesHost {
+  function requireHost(): MmagixFilesHost {
     if (!host) throw new MmxError(4005, "尚未装载 iframe");
     return host;
   }

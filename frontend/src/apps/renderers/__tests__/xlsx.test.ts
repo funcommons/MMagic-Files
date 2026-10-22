@@ -256,7 +256,7 @@ describe('xlsxRenderer ExcelJS 样式渲染（xlsx 路径）', () => {
     const head = ws.getCell('A1')
     head.value = '头部'
     head.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFC000' } }
-    head.font = { bold: true, color: { rgb: 'FF0000' }, size: 14 }
+    head.font = { bold: true, color: { argb: 'FFFF0000' }, size: 14 } // exceljs Color 类型无 rgb 字段（用 argb）
     head.border = { top: { style: 'medium', color: { argb: 'FF000000' } }, bottom: { style: 'thin' } }
     head.alignment = { horizontal: 'center' }
     ws.getRow(1).height = 20
@@ -273,7 +273,7 @@ describe('xlsxRenderer ExcelJS 样式渲染（xlsx 路径）', () => {
 
     const table = el.querySelector('.xlsx-sheet table.xlsx-table')
     expect(table).not.toBeNull()
-    const rows = table!.querySelectorAll('tr')
+    const rows = table!.querySelectorAll<HTMLTableRowElement>('tr')
     expect(rows).toHaveLength(2)
 
     // A1 头部：底色 + 粗体 + 居中 + 边框 + 字号（字色断言略：ExcelJS writer 往返丢 font.color
@@ -295,7 +295,7 @@ describe('xlsxRenderer ExcelJS 样式渲染（xlsx 路径）', () => {
     expect(rows[1]!.cells[0]!.textContent).toBe('合并区')
 
     // 列宽（12 字符 → 89px）
-    const col = table!.querySelectorAll('colgroup col')
+    const col = table!.querySelectorAll<HTMLTableColElement>('colgroup col')
     expect(col[0]!.style.width).toBe('89px')
   })
 
@@ -308,7 +308,7 @@ describe('xlsxRenderer ExcelJS 样式渲染（xlsx 路径）', () => {
 
     const el = document.createElement('div')
     await render(el, blob)
-    const rows = el.querySelectorAll('.xlsx-sheet table tr')
+    const rows = el.querySelectorAll<HTMLTableRowElement>('.xlsx-sheet table tr')
     expect(rows).toHaveLength(2001) // 2000 数据行 + 1 提示行
     const tip = rows[2000]!.querySelector('.xlsx-truncated')
     expect(tip).not.toBeNull()

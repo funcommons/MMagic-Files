@@ -1,19 +1,67 @@
-# MMagic-Files
+# mmagix-files
 
-**可嵌入的 web 文件中台（纯前端 · 0 后端）**——iframe / window.open 即插即用，无用户体系、S3 直连（浏览器内 SigV4，字节不过中台）、JSSDK 100% 开放；**交付物=一个静态 dist**。
+纯前端 S3 文件管理器 · iframe 嵌入式 JS SDK · 可扩展动态应用插件。
 
-## 文档导航
+凭证不出宿主、字节流直进直出——把对象存储桶变成一个可嵌入的文件工作台（预览/编辑/签批/媒体全家桶）。
 
-| 文档 | 一句话 | 读者 |
-| --- | --- | --- |
-| [产品顶层设计](documents/产品顶层设计.md) | 一页核心：定位/五支柱/边界/里程碑/竞争位 | 所有人（从这入门） |
-| [方案设计](documents/方案设计.md) | 完整方案：需求/选型/架构/关键设计/安全/里程碑/裁决台账 | 架构与研发 |
-| [第一期文件类型支持计划](documents/第一期文件类型支持计划.md) | v1 文件类型交付面：支持总表/打开链路/预览策略/扩展路径/验收口径 | 架构与研发 |
-| [用户手册](documents/用户手册.md) | 接入四步：scoped 凭证/fragment 配置/CORS/引入 SDK + 单文件与独立窗形态、会话行为与安全义务 | 消费方接入开发者 |
-| [JSSDK 接口文档](documents/JSSDK%20接口文档.md) | postMessage 双向协议契约：command/event/错误码/类型定义 | 宿主页面开发者 |
-| [动态插件方案](documents/动态插件方案.md) | 插件模型：`activate(sdk)`→`registerApp` 契约/信任两级/安全红线 | 扩展应用开发者 |
-| [动态插件样例](documents/动态插件样例.md) | 三个可跑插件样例（新文件类型上「打开方式」菜单） | 扩展应用开发者 |
+## 特性
 
-## 代码
+| 域 | 能力 |
+|---|---|
+| 双形态 | workspace（S3 桶树浏览/多 tab/上传下载/重命名/删除）· 单文件（直链/预签名 URL 读写） |
+| SDK | postMessage 协议（origin 白名单/超时/信封错误码），iframe 与 window.open 双构造 |
+| 内置应用 | 代码编辑（Monaco 全功能+worker 语言服务+格式化双链）· xlsx 样式渲染 · docx · PDF · Markdown · Mermaid · CSV · HEIC · 音视频 |
+| 动态插件 | Univer 办公编辑 · PDF 标注签批 · Markdown/HTML 编辑器 · 媒体增强 · 图片编辑 · PPTX 预览（SRI 自校验，按需装载） |
+| 安全 | S3 密钥仅宿主持有（TTL 自毁/热替换）· 预签名直传 · iframe 沙箱 · 敌意文件免疫 |
+| 工程 | 中英 i18n · 明暗主题随宿主 · 1391 单测 · Playwright E2E 基线 |
 
-`frontend/`——Vue3 基建就绪：`pnpm dev` / `pnpm test` / `pnpm verify`。
+## 快速接入（三步）
+
+宿主页装载文件管理器（iframe）+ 调用 SDK：
+
+```ts
+import { useMmagixFilesClient } from "@/composables/useMmagixFilesClient"; // 参考实现随 demo 提供
+
+const { iframeRef, mount, call, on, destroy } = useMmagixFilesClient();
+
+// ① 模板里放 <iframe ref="iframeRef" />
+// ② 装载（凭证留在宿主，S3 预签名在浏览器直连）
+await mount({
+  mode: "workspace",
+  bucket: "my-bucket",
+  endpoint: "https://s3.example.com",
+  region: "us-east-1",
+  credentials: { accessKeyId, secretAccessKey, sessionToken },
+  ttlSeconds: 1800,
+}, "https://cdn.example.com/mmagix-files/"); // filesBase=部署好的本产品整站
+
+// ③ 命令与事件
+await call("uploadFiles", { files, targetPrefix: "docs/" });
+on("fileChanged", (p) => console.log(p.key));
+```
+
+完整命令/事件/错误码契约见 [`documents/JSSDK 接口文档.md`](documents/JSSDK%20接口文档.md)；可运行示例见 `mmagix-embed-demo/`（`pnpm dev` → http://localhost:5200）。
+
+## 发布物清单（v1.0.0）
+
+| 物 | 位置 | 说明 |
+|---|---|---|
+| 整站构建 | `frontend/` → `pnpm build` | 部署到任意静态托管（filesBase） |
+| 插件 bundle | `frontend/public/plugins/*.js`（7 个） | 懒加载，SRI 清单见 [`documents/releases/`](documents/releases/) |
+| 宿主侧客户端 | demo 内 `useMmagixFilesClient` 参考实现 | v1.1 起抽独立 npm 包 |
+
+## 文档
+
+- [JSSDK 接口文档](documents/JSSDK%20接口文档.md)——协议契约正本
+- [用户手册](documents/用户手册.md)——接入/配置指南
+- [动态插件方案](documents/动态插件方案.md) / [动态插件样例](documents/动态插件样例.md)——扩展应用开发
+- [CHANGELOG](CHANGELOG.md)
+
+## 开发
+
+```bash
+cd frontend && pnpm install && pnpm dev --port 5199   # 文件管理器
+cd mmagix-embed-demo && pnpm install && pnpm dev    # 演示站 5200（需 MinIO 9000）
+pnpm verify   # typecheck + lint + 1391 单测
+pnpm e2e      # Playwright 全量
+```

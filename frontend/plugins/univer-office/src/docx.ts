@@ -144,7 +144,7 @@ export async function univerDocToDocxBlob(body: { dataStream?: string; textRuns?
     cursor = lineEnd + 1 // \r
   }
   const doc = new docxLib.Document({
-    creator: 'MMagic-Files Univer 插件',
+    creator: 'mmagix-files Univer 插件',
     title: name.replace(/\.[^.]+$/, ''),
     sections: [{ children: children.length > 0 ? children : [new docxLib.Paragraph({})] }],
   })
