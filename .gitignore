@@ -11,3 +11,4 @@
 frontend/public/plugins/
 frontend/plugins/*/node_modules/
 frontend/plugins/*/pnpm-lock.yaml
+node_modules/

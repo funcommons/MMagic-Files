@@ -1,0 +1,22 @@
+== D1 证据：@antv/x6@2.18.1 es/graph/transform.js L107-118（zoom 为增量语义） ==
+zoom(factor, options) {
+    options = options || {};
+    let sx = factor;
+    let sy = factor;
+    const scale = this.getScale();
+    ...
+    if (!options.absolute) {
+        sx += scale.sx;      // ← 增量叠加，不是倍率
+        sy += scale.sy;
+    }
+flow-editor.ts 调用 zoom(0.8)/zoom(1.25) 按倍率语义使用 → 放大一次 = 当前 + 1.25
+实测：fit(58%) 放大一次 → 183%；再缩小 → 263%（+0.8）。zoomTo(1)/zoomToFit 为绝对语义故正常。
+
+== D3 证据：toSVG 在 @antv/x6@2.18.1 全包不存在 ==
+$ grep -rln "toSVG" node_modules/@antv/x6/es/  → (零命中)
+运行时：TypeError: graph.toSVG is not a function（Unhandled Rejection + pageerror）
+
+== D5 相关：X6 v2 视口外单元格 DOM 缺席 ==
+es/graph/graph.js L20/55/673-679：VirtualRenderManager 存在；es/graph/options.js L153 `virtual: false`（默认关）
+实测（probe7/probe6）：边 DOM 数量随视图变换波动（re-24 删前 1 → 删后 rebuild 4），
+自动化断言不可依赖 .x6-edge DOM 计数；产品级联以模型后态+单测为准。

@@ -70,13 +70,14 @@ iframe 加载 ──► evt: ready {sdkVersion, protocolVersion, configSummary} 
 | `remove` | `{ paths: string[] }` | `{}` | 批量删除 |
 | `select` | `{ mode: 'file' \| 'multi' \| 'off', filter?: { exts: ['todo'] } }` | `{}`（ack；`mode='off'`=退出选择模式） | 选择模式（宿主做「选文件」业务）；**用户确认后发 `selectionConfirmed` 事件** |
 | `setTheme` | `{ theme: 'light'\|'dark'\|'auto' }` | `{}` | 运行时换主题 |
+| `setCredentials` | `{ credentials: { accessKeyId, accessKeySecret, sessionToken }, ttlSeconds?, expiresAt? }` | `{}` | **v1.1**：宿主重签通道——热替换会话凭证（下一请求即用新值，在途请求不受影响）并重置自毁线（`expiresAt` 优先于 `ttlSeconds`；双缺省=保持现线）。工作台模式专用（单文件 4305）。信任前提：凭证经消息传输，以宿主已过 origin 白名单为界；STS 过期前宿主可反复重签实现「心跳」 |
 | `setLocale` | `{ locale: 'zh-CN'\|'en-US' }` | `{}` | 运行时切语言 |
-| `registerApp` | `{ url, sri, lazy? }` | `{ appId }` | 运行时动态追加一条配置注入插件（语义见下注） |
+| `registerApp` | `{ url, sri, lazy?, options? }` | `{ appId, applied? }` | 运行时动态追加一条配置注入插件（语义见下注）；`options` 为对象时透传给 `activate(sdk, options)`（v1.1 增补，只增不改义）；`applied`=本次调用是否处于该 url 首次激活路径（false=同 url 幂等短路，**本次 options 不生效**，宿主应改走重载/刷新，v1.1） |
 | `getInfo` | `{}` | `{ sdkVersion, session: { expiresInSec }, features }` | 会话信息查询 |
 | `destroy` | `{}` | `{}` | 立即自毁 |
 
 - **payload 统一注记（全文同）**：① `key`/`paths` 等路径类字段=**相对配置 `backend.prefix` 的对象键**；② 扩展名一律**不带点**（如 `filter.exts: ['todo']`），匹配前归一化=**忽略大小写与前导点**；③ `getInfo` reply 的 `features` 形状=`{ [featureKey]: boolean }`（与配置 `features.*` 同键位）；④ 参数非法/格式错=reject **4005 BAD_PARAM**
-- **registerApp 通道语义**：payload 与配置注入 `plugins[]` **同构**（url+sri+lazy，同一 registry，见《动态插件方案.md》）——iframe 收到后以 `<script type="module" src integrity>` 标签注入加载（**SRI 原生校验**），调用该模块 `activate(sdk)`；完整 manifest（matcher/renderer/probe 等）内含于插件 js。设计理由：**函数体必须在插件 js 内、不可经消息传输，故运行时注册传 URL 而非 renderer**
+- **registerApp 通道语义**：payload 与配置注入 `plugins[]` **同构**（url+sri+lazy，同一 registry，见《动态插件方案.md》）——iframe 收到后以 `<script type="module" src integrity>` 标签注入加载（**SRI 原生校验**），调用该模块 `activate(sdk, options?)`（options=v1.1 透传的插件参数，缺省不传）；完整 manifest（matcher/renderer/probe 等）内含于插件 js。设计理由：**函数体必须在插件 js 内、不可经消息传输，故运行时注册传 URL 而非 renderer**
 
 ## 六、Event（文件服务 → 宿主）
 
@@ -92,6 +93,7 @@ iframe 加载 ──► evt: ready {sdkVersion, protocolVersion, configSummary} 
 | `uploadDone` / `uploadFailed` | `{ id, key? , error? }` | 上传终态 |
 | `downloadDone` / `downloadFailed` | `{ id, error? }` | 下载终态（与 upload 对称） |
 | `fileChanged` | `{ key, action: 'put'\|'delete'\|'rename', from? }` | 面板内用户变更（宿主同步自身视图用；单文件模式 save 回写成功亦触发，见 §四） |
+| `previewFullscreen` | `{ on: boolean }` | 预览区浏览器内全屏切换（iframe 应用发出，宿主应把承载 iframe 的容器铺满本页视口；Esc 退出时 `on=false`。宿主不处理也不影响 iframe 内布局） |
 | `expired` | `{ reason: 'ttl' \| 'destroyed' }` | 会话终态（见 §三） |
 | `error` | `{ code, message, detail? }` | 非命令类故障（插件加载失败 4201、宿主侧 registerApp 加载失败等） |
 

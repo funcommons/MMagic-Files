@@ -1,0 +1,17 @@
+✓ Lockfile passes supply-chain policies (verified 2d ago)
+[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: protobufjs@7.6.6
+
+Run "pnpm approve-builds" to pick which dependencies should be allowed to run scripts.
+[ERROR] Command failed with exit code 1: pnpm install
+
+pnpm: Command failed with exit code 1: pnpm install
+    at getFinalError (file:///opt/homebrew/lib/node_modules/pnpm/dist/pnpm.mjs:89319:14)
+    at makeError (file:///opt/homebrew/lib/node_modules/pnpm/dist/pnpm.mjs:91626:21)
+    at getSyncResult (file:///opt/homebrew/lib/node_modules/pnpm/dist/pnpm.mjs:93470:10)
+    at spawnSubprocessSync (file:///opt/homebrew/lib/node_modules/pnpm/dist/pnpm.mjs:93430:14)
+    at execaCoreSync (file:///opt/homebrew/lib/node_modules/pnpm/dist/pnpm.mjs:93360:23)
+    at callBoundExeca (file:///opt/homebrew/lib/node_modules/pnpm/dist/pnpm.mjs:95888:23)
+    at boundExeca (file:///opt/homebrew/lib/node_modules/pnpm/dist/pnpm.mjs:95865:49)
+    at sync2 (file:///opt/homebrew/lib/node_modules/pnpm/dist/pnpm.mjs:96020:14)
+    at runPnpmCli (file:///opt/homebrew/lib/node_modules/pnpm/dist/pnpm.mjs:273515:5)
+    at runDepsStatusCheck (file:///opt/homebrew/lib/node_modules/pnpm/dist/pnpm.mjs:274731:7)

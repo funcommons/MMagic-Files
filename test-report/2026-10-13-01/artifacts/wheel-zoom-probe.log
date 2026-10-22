@@ -1,0 +1,6 @@
+== D2 证据：Ctrl+滚轮缩放三通道全灭（probe5，真实 demo :5200） ==
+① CDP 可信滚轮（page.mouse.wheel）+ keyboard.down('Control')  → 100% → 100%
+② 合成 WheelEvent{ctrlKey:true} 直发 svg 根                    → 100% → 100%
+③ 合成 WheelEvent{ctrlKey:true} 直发画布容器                   → 100% → 100%
+Graph 配置 mousewheel:{enabled:true, modifiers:['ctrl'], factor:1.1, zoomAt:'center'}
+结论：X6 2.18.1 下该配置未生效（含可信事件通道），需人工复核并在修复 D1 时一并处理。

@@ -1,0 +1,242 @@
+{
+  "baseline": {
+    "nodes": 4,
+    "edges": 4
+  },
+  "results": [
+    {
+      "lane": "F1 装配与渲染",
+      "id": "re-01",
+      "name": "X6 画布装配：节点数≥4、边数≥3",
+      "pass": true
+    },
+    {
+      "lane": "F1 装配与渲染",
+      "id": "re-02",
+      "name": "语义配色：判定节点菱形琥珀底 #fffbeb",
+      "pass": true
+    },
+    {
+      "lane": "F1 装配与渲染",
+      "id": "re-03",
+      "name": "自适应尺寸：各节点盒随文本（非等宽定值）",
+      "pass": true
+    },
+    {
+      "lane": "F2 选中效果",
+      "id": "re-04",
+      "name": "点选节点 → boundary 虚线包围盒出现",
+      "pass": true
+    },
+    {
+      "lane": "F2 选中效果",
+      "id": "re-05",
+      "name": "点空白 → 选中效果清除 + 面板收起",
+      "pass": true
+    },
+    {
+      "lane": "F2 选中效果",
+      "id": "re-06",
+      "name": "点选边 → boundary 挂载到边",
+      "pass": true
+    },
+    {
+      "lane": "F3 缩放体系",
+      "id": "re-07",
+      "name": "放大一次 → 125%",
+      "pass": false,
+      "error": "Error: zoom=183%（期望 125%）"
+    },
+    {
+      "lane": "F3 缩放体系",
+      "id": "re-08",
+      "name": "缩小一次 → 100%",
+      "pass": false,
+      "error": "Error: zoom=263%（期望 100%）"
+    },
+    {
+      "lane": "F3 缩放体系",
+      "id": "re-09",
+      "name": "Ctrl+滚轮缩放生效",
+      "pass": false,
+      "error": "Error: ctrl+wheel 后仍 100%"
+    },
+    {
+      "lane": "F3 缩放体系",
+      "id": "re-10",
+      "name": "适应画布 → ≤100%",
+      "pass": true
+    },
+    {
+      "lane": "F3 缩放体系",
+      "id": "re-11",
+      "name": "1:1 → 100%",
+      "pass": true
+    },
+    {
+      "lane": "F4 形状下拉与节点模板",
+      "id": "re-12",
+      "name": "形状下拉展开：5 类语义模板（色点+名称）",
+      "pass": true
+    },
+    {
+      "lane": "F4 形状下拉与节点模板",
+      "id": "re-13",
+      "name": "逐类添加 5 节点：判定/开始/输入输出/结束/过程",
+      "pass": true
+    },
+    {
+      "lane": "F5 撤销/重做",
+      "id": "re-14",
+      "name": "撤销（单步）→ 节点 9→8",
+      "pass": true
+    },
+    {
+      "lane": "F5 撤销/重做",
+      "id": "re-15",
+      "name": "重做（单步）→ 节点恢复 9",
+      "pass": true
+    },
+    {
+      "lane": "F5 撤销/重做",
+      "id": "re-16",
+      "name": "再撤销回 8；重做钮可用性随栈翻转",
+      "pass": true
+    },
+    {
+      "lane": "F6 多行文本与自适应",
+      "id": "re-17",
+      "name": "多行 label：两行渲染 + 节点盒增高（38→56）",
+      "pass": true
+    },
+    {
+      "lane": "F6 多行文本与自适应",
+      "id": "re-18",
+      "name": "长单行 label：节点盒增宽（76→212）",
+      "pass": true
+    },
+    {
+      "lane": "F7 属性面板",
+      "id": "re-19",
+      "name": "类型切换 判定→输入输出：菱形变圆角矩形",
+      "pass": true
+    },
+    {
+      "lane": "F7 属性面板",
+      "id": "re-20",
+      "name": "自定义填充色 #ffcc00 → 节点填充生效（已知缺陷 D4 佐证）",
+      "pass": false,
+      "error": "Error: fill=#fffbeb"
+    },
+    {
+      "lane": "F7 属性面板",
+      "id": "re-21",
+      "name": "元数据 JSON 编辑 → 应用",
+      "pass": true
+    },
+    {
+      "lane": "F8 连线与边标签",
+      "id": "re-22",
+      "name": "连线模式：两击建边 → 边+1",
+      "pass": true
+    },
+    {
+      "lane": "F8 连线与边标签",
+      "id": "re-23",
+      "name": "边标签编辑 → 画布出现标签文本",
+      "pass": true
+    },
+    {
+      "lane": "F9 删除",
+      "id": "re-24",
+      "name": "Delete 键删节点 → 级联删关联边",
+      "pass": false,
+      "error": "Error: 关联边未级联 edges=4 (前 1)"
+    },
+    {
+      "lane": "F9 删除",
+      "id": "re-25",
+      "name": "「删除选中」钮 → 删节点",
+      "pass": true
+    },
+    {
+      "lane": "F10 导出 SVG",
+      "id": "re-26",
+      "name": "导出 → 触发 .svg 下载",
+      "pass": false,
+      "error": "TimeoutError: page.waitForEvent: Timeout 8000ms exceeded while waiting for event \"download\"\n=========================== logs ===========================\nwaiting for event \"download\"\n============================================================"
+    },
+    {
+      "lane": "F11 关闭确认",
+      "id": "re-27",
+      "name": "dirty 关 tab → confirm 拦截；取消则 tab 保留",
+      "pass": true
+    },
+    {
+      "lane": "F12 保存链",
+      "id": "re-28",
+      "name": "Ctrl+S → 徽标清除 + 宿主协议 fileChanged put",
+      "pass": true
+    },
+    {
+      "lane": "F12 保存链",
+      "id": "re-29",
+      "name": "持久化：关 tab 重开 → 多行 label / 元数据还原",
+      "pass": true
+    },
+    {
+      "lane": "F12 保存链",
+      "id": "re-29b",
+      "name": "持久化：自定义填充色还原（已知缺陷 D4 佐证）",
+      "pass": false,
+      "error": "Error: 填充未持久化 fill=#fffbeb（期望 #ffcc00）"
+    },
+    {
+      "lane": "F13 语法降级",
+      "id": "re-30",
+      "name": "时序图 login-seq.mmd → 只读 mermaid 渲染（无编辑工具栏）",
+      "pass": true
+    },
+    {
+      "lane": "F13 语法降级",
+      "id": "re-31",
+      "name": "脑图 product-mind.mmd → 只读 mermaid 渲染",
+      "pass": true
+    },
+    {
+      "lane": "F14 边界门",
+      "id": "re-32",
+      "name": "坏语法（mindmap+tab 缩进）→ 降级失败提示",
+      "pass": true
+    },
+    {
+      "lane": "F14 边界门",
+      "id": "re-33",
+      "name": "宽容语法（broken-mind.mmd）→ 不崩溃（失败提示或只读渲染）",
+      "pass": true
+    },
+    {
+      "lane": "F14 边界门",
+      "id": "re-34",
+      "name": "超大 huge.mmd（5.6MB>5MiB）→ 过大提示不装配",
+      "pass": false,
+      "error": "Error: 无过大提示"
+    },
+    {
+      "lane": "F14 边界门",
+      "id": "re-35",
+      "name": "空图 empty-graph.mmd → 只读渲染不崩溃",
+      "pass": true
+    }
+  ],
+  "consoleErrors": [
+    "[Unhandled Rejection] TypeError: graph.toSVG is not a function\n    at http://localhost:5199/src/apps/renderers/flow-editor.ts?t=1791875893674:616:25\n    at new Promise (<anonymous>)\n    at Object.toSVG (http://localhost:5199/src/apps/renderers/flow-editor.ts?t=1791875893674:615:20)\n    at exportSvg ",
+    "PAGEERROR graph.toSVG is not a function"
+  ],
+  "dialogLog": [
+    {
+      "message": "有未保存的修改，确定关闭吗？",
+      "type": "confirm"
+    }
+  ]
+}

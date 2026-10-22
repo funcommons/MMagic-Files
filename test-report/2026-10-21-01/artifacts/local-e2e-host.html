@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>local-e2e-host（同源宿主壳，仅测试）</title>
+<style>
+  body { margin: 0; font: 13px/1.6 system-ui, sans-serif; }
+  iframe { width: 100vw; height: 92vh; border: 1px solid #ccc; display: block; }
+  #bar { padding: 8px 12px; display: flex; gap: 10px; align-items: center; }
+  #status { color: #666; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <strong>local-e2e-host</strong>
+  <span id="status">booting…</span>
+  <button id="open-code" type="button">openFile(note-local.md → code-editor)</button>
+</div>
+<iframe id="frame"></iframe>
+<script type="module">
+  /**
+   * 同源宿主壳（E2E 专用）：宿主与 iframe 同为 5199 origin——
+   * 验证「同源 iframe 内直调 showDirectoryPicker」路径（规范允许；跨源场景走宿主代理命令，
+   * 另由 demo 5200 覆盖命令链）。协议裸写（ns=mmagic-files v1；与 useMmxFilesClient 同形最小面）。
+   */
+  const NS = 'mmagic-files'
+  const config = {
+    mode: 'workspace',
+    v: 1,
+    backend: {
+      endpoint: 'http://localhost:9000',
+      region: 'us-east-1',
+      bucket: 'mmagic-demo',
+      prefix: '',
+      credentials: { accessKeyId: 'rag_flow', accessKeySecret: 'infini_rag_flow', sessionToken: '' },
+    },
+    security: { allowedOrigins: [location.origin] },
+  }
+  const frame = document.getElementById('frame')
+  frame.src = `${location.origin}/#config=${encodeURIComponent(JSON.stringify(config))}`
+  const status = document.getElementById('status')
+  let seq = 0
+  const pending = new Map()
+  /** 宿主→iframe cmd（reply 按 id 匹配；写回链验证用——openFile 指定 appId 直开编辑器，绕开右键菜单 UI） */
+  function call(name, payload) {
+    return new Promise((resolve, reject) => {
+      const id = `h${++seq}`
+      const t = setTimeout(() => { pending.delete(id); reject(new Error(`${name} timeout`)) }, 10000)
+      pending.set(id, { resolve, reject, t, name })
+      frame.contentWindow.postMessage({ ns: NS, v: 1, kind: 'cmd', id, name, payload: payload ?? {} }, location.origin)
+    })
+  }
+  window.__hostCall = call
+  window.addEventListener('message', (e) => {
+    const d = e.data
+    if (!d || d.ns !== NS) return
+    if (d.kind === 'reply') {
+      const p = pending.get(d.id)
+      if (!p) return
+      pending.delete(d.id)
+      clearTimeout(p.t)
+      if (d.ok) p.resolve(d.payload)
+      else p.reject(new Error(`${p.name} code=${d.code}`))
+      return
+    }
+    if (d.kind !== 'evt') return
+    if (d.name === 'ready') status.textContent = `ready ✓ sdk=${d.payload?.sdkVersion ?? '?'}`
+    if (d.name === 'fileChanged') status.textContent = `fileChanged: ${JSON.stringify(d.payload ?? {}).slice(0, 80)}`
+  })
+  document.getElementById('open-code').addEventListener('click', () => {
+    void call('openFile', { path: 'note-local.md', appId: 'code-editor' }).catch((e) => { status.textContent = String(e.message ?? e) })
+  })
+</script>
+</body>
+</html>

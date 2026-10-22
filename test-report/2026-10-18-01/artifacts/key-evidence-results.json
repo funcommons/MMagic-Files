@@ -1,0 +1,50 @@
+[
+  {
+    "id": "K1",
+    "name": "工作台装配（iframe+SDK 就绪+树加载）",
+    "pass": true,
+    "detail": "apps-demo 节点可见，协议 ready"
+  },
+  {
+    "id": "K2",
+    "name": "内置 markdown+mermaid（静默降级，无炸弹图）",
+    "pass": true,
+    "detail": "渲染正常无错误呈现"
+  },
+  {
+    "id": "K3",
+    "name": "code 渲染器（Monaco）",
+    "pass": true,
+    "detail": "monaco-editor 挂载=true"
+  },
+  {
+    "id": "K4",
+    "name": "Artplayer 播放器（打开方式插件链路）",
+    "pass": true,
+    "detail": "{\"apRoot\":true,\"stage\":\"ap-stage\",\"artRoot\":\"art-video-player art-subtitle-show art-l\",\"videoPresent\":true,\"videoDuration\":2}"
+  },
+  {
+    "id": "K5",
+    "name": "图片查看器",
+    "pass": true,
+    "detail": "图片元素挂载=true"
+  },
+  {
+    "id": "K6",
+    "name": "Filerobot 编辑器（图标化+顶栏重排）",
+    "pass": true,
+    "detail": "{\"mounted\":true,\"save\":{\"x\":301,\"y\":51,\"w\":28,\"h\":26},\"zoom\":{\"x\":973,\"y\":725,\"w\":240,\"h\":32},\"tools\":{\"x\":613,\"y\":92,\"w\":292,\"h\":44},\"undo\":{\"x\":393,\"y\":48,\"w\":32,\"h\":32}}"
+  },
+  {
+    "id": "K7",
+    "name": "右键菜单",
+    "pass": true,
+    "detail": "menu ok"
+  },
+  {
+    "id": "ERR",
+    "name": "demo 页 pageerror 汇总",
+    "pass": true,
+    "detail": "0 pageerror"
+  }
+]

@@ -1,0 +1,37 @@
+# DEF-1 未捕获异常完整证据（2026-10-18-01，修复前取证）
+# 复现率：完整链修复前 3/3（bisect-error.mjs）；减步链 0/4（bisect2/bisect3）
+# 复现步骤：装配 → 展开 apps-demo → 展开 docs → 开 sample.md → 展开 code → 开 app.ts → 展开 media
+#           （600ms 节奏连开，clip.mp4 takeOver 接管 Monaco 时触发；800ms 节奏不复现）
+# 修复后（2026-10-18 code.ts dispose 顺序反转 + try/catch）：同一脚本 3/3 全部 0 pageerror
+Error: Cannot read properties of undefined (reading '0')
+
+TypeError: Cannot read properties of undefined (reading '0')
+    at Emitter._deliverQueue (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:2637:30)
+    at Emitter.fire (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:2647:12)
+    at _a8.dispose (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:76012:25)
+    at StandaloneEditor2._postDetachModelCleanup (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:136789:21)
+    at StandaloneEditor2.setModel (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:84740:12)
+    at UniqueContainer.value (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:85652:59)
+    at Emitter._deliver (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:2628:16)
+    at Emitter._deliverQueue (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:2637:12)
+    at Emitter.fire (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:2657:12)
+    at _a8.dispose (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:76012:25)
+    at Object.dispose (http://localhost:5199/src/apps/renderers/code.ts?t=1792134667687:309:26)
+    at teardown (http://localhost:5199/src/files/preview.ts:34:12)
+    at takeOver (http://localhost:5199/src/files/preview.ts:124:5)
+    at Object.open (http://localhost:5199/src/files/preview.ts:222:5)
+    at Emitter._deliverQueue (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:2637:30)
+    at Emitter.fire (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:2647:12)
+    at _a8.dispose (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:76012:25)
+    at StandaloneEditor2._postDetachModelCleanup (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:136789:21)
+    at StandaloneEditor2.setModel (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:84740:12)
+    at UniqueContainer.value (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:85652:59)
+    at Emitter._deliver (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:2628:16)
+    at Emitter._deliverQueue (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:2637:12)
+    at Emitter.fire (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:2657:12)
+    at _a8.dispose (http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:76012:25)
+    at Object.dispose (http://localhost:5199/src/apps/renderers/code.ts?t=1792134667687:309:26)
+    at teardown (http://localhost:5199/src/files/preview.ts:34:12)
+    at takeOver (http://localhost:5199/src/files/preview.ts:124:5)
+    at Object.open (http://localhost:5199/src/files/preview.ts:222:5)
+    at http://localhost:5199/node_modules/.vite/deps/chunk-MRTIZAEU.js?v=f6865a2b:129:17

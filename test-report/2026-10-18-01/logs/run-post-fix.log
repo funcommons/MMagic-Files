@@ -1,0 +1,173 @@
+
+Running 45 tests using 1 worker
+
+  ✓   1 e2e/00-warmup.spec.ts:13:1 › warmup：预热重依赖并留存工作台基线截图 (1.3s)
+[boot-01] console 证据：
+（无 console.error / pageerror）
+  ✓   2 e2e/line1-boot-error.spec.ts:10:3 › 业务线1：boot 错误态 › boot-01：URL 无 fragment → 配置错误卡渲染（code=4001） (314ms)
+[boot-02] console 证据：
+（无 console.error / pageerror）
+  ✓   3 e2e/line1-boot-error.spec.ts:20:3 › 业务线1：boot 错误态 › boot-02：#config 为坏 JSON → 4001 + JSON 解析失败 detail (312ms)
+[boot-03] console 证据：
+（无 console.error / pageerror）
+  ✓   4 e2e/line1-boot-error.spec.ts:30:3 › 业务线1：boot 错误态 › boot-03：#config v=2（版本不支持）→ 4001 + 版本提示 (314ms)
+[boot-04] console 证据：
+（无 console.error / pageerror）
+  ✓   5 e2e/line1-boot-error.spec.ts:47:3 › 业务线1：boot 错误态 › boot-04：连接向导打开 → 遮罩在错误卡上层（z-index 达标 + hero 标题中心 hit-test 落在遮罩内） (931ms)
+[plug-01] error 事件 payload={"code":4201,"message":"插件加载失败：Failed to fetch"}
+[plug-01] console 证据：
+[console.error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+  ✓   6 e2e/line10-plugins.spec.ts:14:3 › 业务线10：插件失败路径 › plug-01：不可达插件 URL → 打开未匹配文件触发 ensureApps → error(4201) + fallback (510ms)
+[plug-02] error 事件 payload={"code":4201,"message":"插件 SRI 校验不符：https://sri.mock.local/plugin.js"}
+[plug-02] console 证据：
+（无 console.error / pageerror）
+  ✓   7 e2e/line10-plugins.spec.ts:40:3 › 业务线10：插件失败路径 › plug-02：SRI 校验不符 → error(4201)，插件未注册 (559ms)
+[wb-01] console 证据：
+（无 console.error / pageerror）
+  ✓   8 e2e/line11-workbench.spec.ts:46:3 › 业务线11：工作台交互面（Lane F5） › wb-01：行右键 → 菜单出现（打开/打开方式/重命名/删除/下载/新建目录），open-with 指定应用打开 (869ms)
+[wb-02] console 证据：
+[console.error] Failed to load resource: the server responded with a status of 404 (Not Found)
+  ✓   9 e2e/line11-workbench.spec.ts:68:3 › 业务线11：工作台交互面（Lane F5） › wb-02：容器拖拽 drop → enqueue 当前目录 → PUT + 入树 + 上传面板完成态 (757ms)
+[wb-03] console 证据：
+（无 console.error / pageerror）
+  ✓  10 e2e/line11-workbench.spec.ts:91:3 › 业务线11：工作台交互面（Lane F5） › wb-03：ctrl 多选 → 批量下载钮启用 → 删除走 {n} 多选确认 → 两对象一并删除 (1.2s)
+[wb-04] console 证据：
+[console.error] Failed to load resource: the server responded with a status of 404 (Not Found)
+[console.error] Failed to load resource: the server responded with a status of 404 (Not Found)
+  ✓  11 e2e/line11-workbench.spec.ts:118:3 › 业务线11：工作台交互面（Lane F5） › wb-04：上传中任务取消钮可见 → 取消 → 「已取消」终态（UploadPanel） (772ms)
+[wb-05] console 证据：
+[console.error] Failed to load resource: the server responded with a status of 404 (Not Found)
+  ✓  12 e2e/line11-workbench.spec.ts:145:3 › 业务线11：工作台交互面（Lane F5） › wb-05：粘贴文件 → 入队当前目录 → PUT + 传输面板完成态（Lane G1） (671ms)
+[wb-06] console 证据：
+（无 console.error / pageerror）
+  ✓  13 e2e/line11-workbench.spec.ts:168:3 › 业务线11：工作台交互面（Lane F5） › wb-06：预览 tab 条——追加制多开 / 双击钉住 / 切回恢复（Lane H1，2026-10 追加制定版） (989ms)
+[wb-07] console 证据：
+（无 console.error / pageerror）
+  ✓  14 e2e/line11-workbench.spec.ts:208:3 › 业务线11：工作台交互面（Lane F5） › wb-07：选中文件 → 分享 → GET/PUT 预签名链接生成（含 X-Amz-Signature）（Lane H-2） (2.1s)
+[wb-08] console 证据：
+[console.error] Failed to load resource: the server responded with a status of 404 (Not Found)
+[console.error] Failed to load resource: the server responded with a status of 404 (Not Found)
+  ✓  15 e2e/line11-workbench.spec.ts:253:3 › 业务线11：工作台交互面（Lane F5） › wb-08：⌘K/Ctrl+K 唤起命令面板 → 冷索引引导行 → Esc 关闭 → 「传输任务」命令定位高亮传输面板 (1.2s)
+[ws-01] console 证据：
+（无 console.error / pageerror）
+  ✓  16 e2e/line2-workspace-browse.spec.ts:12:3 › 业务线2：workspace 浏览 › ws-01：根目录树渲染（目录行 + 文件行 + 大小/类型列） (399ms)
+[ws-02] console 证据：
+（无 console.error / pageerror）
+  ✓  17 e2e/line2-workspace-browse.spec.ts:32:3 › 业务线2：workspace 浏览 › ws-02：目录原位展开（子级下钻）+ 收起（2026-10 展开树范式） (583ms)
+[ws-03] console 证据：
+（无 console.error / pageerror）
+  ✓  18 e2e/line2-workspace-browse.spec.ts:59:3 › 业务线2：workspace 浏览 › ws-03：子目录懒加载 + ListObjectsV2 聚合翻页（IsTruncated→continuation-token） (435ms)
+[ws-04] console 证据：
+[console.error] Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+[console.error] [Unhandled Rejection] SdkError: S3 请求失败：HTTP 500（InternalError）
+    at mapHttpError (http://localhost:5199/src/sdk/s3/client.ts?t=1792140980039:45:10)
+    at S3SigV4Client.request (http://localhost:5199/src/sdk/s3/client.ts?t=1792140980039:132:11)
+    at async S3SigV4Client.list (http://localhost:5199/src/sdk/s3/client.ts?t=1792140980039:142:17)
+    at async http://localhost:5199/src/files/tree-store.ts:52:22
+    at async guarded (http://localhost:5199/src/files/tree-store.ts:31:17)
+    at async fetchDir (http://localhost:5199/src/files/tree-store.ts:63:7)
+    at async Proxy.loadDir (http://localhost:5199/src/files/tree-store.ts:70:5)
+[console.error] Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+[console.error] [Unhandled Rejection] SdkError: S3 请求失败：HTTP 500（InternalError）
+    at mapHttpError (http://localhost:5199/src/sdk/s3/client.ts?t=1792140980039:45:10)
+    at S3SigV4Client.request (http://localhost:5199/src/sdk/s3/client.ts?t=1792140980039:132:11)
+    at async S3SigV4Client.list (http://localhost:5199/src/sdk/s3/client.ts?t=1792140980039:142:17)
+    at async http://localhost:5199/src/files/tree-store.ts:52:22
+    at async guarded (http://localhost:5199/src/files/tree-store.ts:31:17)
+    at async fetchDir (http://localhost:5199/src/files/tree-store.ts:63:7)
+    at async Proxy.loadDir (http://localhost:5199/src/files/tree-store.ts:70:5)
+[pageerror] S3 请求失败：HTTP 500（InternalError）
+[pageerror] S3 请求失败：HTTP 500（InternalError）
+  ✓  19 e2e/line2-workspace-browse.spec.ts:82:3 › 业务线2：workspace 浏览 › ws-04：List 500 → 失败态（启动即失败空态 + 子目录失败 toast）→ 重试恢复 (556ms)
+[render-01] console 证据：
+（无 console.error / pageerror）
+  ✓  20 e2e/line3-renderers.spec.ts:20:3 › 业务线3：渲染器预览 › render-01：.md → markdown HTML（标题/链接加固 target=_blank） (605ms)
+[render-02] console 证据：
+（无 console.error / pageerror）
+  ✓  21 e2e/line3-renderers.spec.ts:34:3 › 业务线3：渲染器预览 › render-02：.png → <img>（blob URL） (455ms)
+[render-03] console 证据：
+（无 console.error / pageerror）
+  ✓  22 e2e/line3-renderers.spec.ts:45:3 › 业务线3：渲染器预览 › render-03：.csv 默认应用=csv-table 表格（F3 修复验证：注册序渲染类优先，舞台尺寸达标） (470ms)
+[render-03b] 修复验证：.csv 默认命中 csv-table，code-editor 不再抢占默认
+[render-03b] console 证据：
+（无 console.error / pageerror）
+  ✓  23 e2e/line3-renderers.spec.ts:64:3 › 业务线3：渲染器预览 › render-03b：.csv 默认链不再命中 code-editor（F3 修复验证：Monaco 不抢占默认） (451ms)
+[render-04] console 证据：
+（无 console.error / pageerror）
+  ✓  24 e2e/line3-renderers.spec.ts:77:3 › 业务线3：渲染器预览 › render-04：.txt → Monaco 编辑器（只读预览，内容一致，舞台尺寸达标） (836ms)
+[render-05] console 证据：
+（无 console.error / pageerror）
+  ✓  25 e2e/line3-renderers.spec.ts:92:3 › 业务线3：渲染器预览 › render-05：.mp4 → <video controls>（媒体在恒定舞台内可视） (438ms)
+[render-06] console 证据：
+（无 console.error / pageerror）
+  ✓  26 e2e/line3-renderers.spec.ts:105:3 › 业务线3：渲染器预览 › render-06：未匹配类型 .xyz → fallback 下载提示（含下载按钮） (417ms)
+[render-07] console 证据：
+[console.error] Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+  ✓  27 e2e/line3-renderers.spec.ts:117:3 › 业务线3：渲染器预览 › render-07：渲染取流 GET 500 → per-tab 错误边界（标题+信息+重试+下载），不崩工作台 (520ms)
+[render-08] console 证据：
+（无 console.error / pageerror）
+  ✓  28 e2e/line3-renderers.spec.ts:138:3 › 业务线3：渲染器预览 › render-08：快速连开预览（600ms 节奏 takeOver 接管 Monaco）→ 0 pageerror（DEF-1 回归门） (3.2s)
+[tb-01] console 证据：
+（无 console.error / pageerror）
+  ✓  29 e2e/line4-toolbar.spec.ts:30:3 › 业务线4：工具栏操作 › tb-01：新建目录 → PUT 目录标记 → 树出现新目录 + fileChanged(put) (1.0s)
+[tb-02] console 证据：
+（无 console.error / pageerror）
+  ✓  30 e2e/line4-toolbar.spec.ts:45:3 › 业务线4：工具栏操作 › tb-02：选中文件 → 删除（confirm）→ DeleteObjects + 行消失 + fileChanged(delete) (1.1s)
+[tb-03] console 证据：
+（无 console.error / pageerror）
+  ✓  31 e2e/line4-toolbar.spec.ts:66:3 › 业务线4：工具栏操作 › tb-03：重命名 → copy+delete 语义 → 行更新 + fileChanged(rename) (1.2s)
+[tb-04] console 证据：
+（无 console.error / pageerror）
+  ✓  32 e2e/line4-toolbar.spec.ts:85:3 › 业务线4：工具栏操作 › tb-04：刷新 → 强制重拉当前目录（list 请求 +1） (445ms)
+[up-01] 修复验证：上传完成后新文件免手动刷新直接出现在树中（F6 已修）
+[up-01] console 证据：
+[console.error] Failed to load resource: the server responded with a status of 404 (Not Found)
+  ✓  33 e2e/line5-upload.spec.ts:28:3 › 业务线5：上传 › up-01：上传 txt → PUT + uploadDone 事件 + 树自动刷新出现新文件（F6 修复验证） (604ms)
+[up-02] console 证据：
+（无 console.error / pageerror）
+  ✓  34 e2e/line5-upload.spec.ts:56:3 › 业务线5：上传 › up-02：denyExts 命中（.exe）→ 拒收 toast，无 PUT (422ms)
+[up-03] console 证据：
+（无 console.error / pageerror）
+  ✓  35 e2e/line5-upload.spec.ts:72:3 › 业务线5：上传 › up-03：uploadMaxBytes 超限 → 拒收 toast（size），无 PUT (420ms)
+[up-04] console 证据：
+（无 console.error / pageerror）
+  ✓  36 e2e/line5-upload.spec.ts:90:3 › 业务线5：上传 › up-04：重名冲突确认 → 跳过不 PUT，覆盖后 PUT + uploadDone（Lane G1） (1.6s)
+[sess-01] console 证据：
+（无 console.error / pageerror）
+  ✓  37 e2e/line6-session-expiry.spec.ts:13:3 › 业务线6：会话到期 › sess-01：ttl=5s → 到期整屏遮罩 + expired(ttl) 事件 (5.8s)
+[sess-02] navigate reply={"ns":"mmagic-files","v":1,"kind":"reply","id":"cmd-mvdfealc-xwvjfl","name":"navigate","payload":{"code":5000,"message":"会话已终态，拒绝命令"},"ok":false,"code":5000}
+[sess-02] 修复验证：到期后 cmd 收 5000 reply（契约 §七）
+[sess-02] console 证据：
+（无 console.error / pageerror）
+  ✓  38 e2e/line6-session-expiry.spec.ts:32:3 › 业务线6：会话到期 › sess-02：到期后 navigate 命令 → reply ok=false code=5000（F4 修复验证：契约 §七终态回包） (5.8s)
+[feat-01] remove reply={"ns":"mmagic-files","v":1,"kind":"reply","id":"cmd-mvdfeayg-2hnbbx","name":"remove","payload":{"code":4301,"message":"功能已关闭：features.delete=false"},"ok":false,"code":4301}
+[feat-01] console 证据：
+（无 console.error / pageerror）
+  ✓  39 e2e/line7-features.spec.ts:30:3 › 业务线7：features 门控（delete=false） › feat-01：JSSDK remove 命令 → reply ok=false code=4301（API 拒绝层） (459ms)
+[feat-02] 修复验证：features.delete=false 时删除按钮已隐藏（重命名/刷新不受影响）
+[feat-02] console 证据：
+（无 console.error / pageerror）
+  ✓  40 e2e/line7-features.spec.ts:43:3 › 业务线7：features 门控（delete=false） › feat-02：features.delete=false → 删除按钮隐藏（F1 修复验证：UI 门控「UI 隐藏」层） (779ms)
+[feat-03] features.delete=false 时 UI 删除路径发出的 DeleteObjects keys=[]
+[feat-03] 修复验证：UI 删除链整链拒绝（入口隐藏 + 无 S3 删除 + 数据完好）
+[feat-03] console 证据：
+（无 console.error / pageerror）
+  ✓  41 e2e/line7-features.spec.ts:62:3 › 业务线7：features 门控（delete=false） › feat-03：features.delete=false → UI 删除链整链拒绝，无 S3 删除（F1 修复验证） (2.0s)
+[file-01] 只读 #file 打开后源对象 GET 次数=1
+[file-01] 修复验证：只读 #file 由 markdown-renderer 渲染源内容（GET>0 且 DOM 可见）
+[file-01] console 证据：
+（无 console.error / pageerror）
+  ✓  42 e2e/line8-single-file.spec.ts:14:3 › 业务线8：单文件模式（#file） › file-01：只读 #file（无 save）→ 名称/「只读」标记 + 预览应用渲染源内容（F2 修复验证） (555ms)
+[file-02] console 证据：
+（无 console.error / pageerror）
+  ✓  43 e2e/line8-single-file.spec.ts:35:3 › 业务线8：单文件模式（#file） › file-02：可写 #file（含 save 段）→ 「可编辑」标记 (578ms)
+[office-01] 降级提示文案="Word 文档加载失败"
+[office-01] console 证据：
+（无 console.error / pageerror）
+  ✓  44 e2e/line9-office.spec.ts:37:3 › 业务线9：office 预览 › office-01：docx 非法 zip → 可控降级提示（docx-load-fail），不崩溃 (465ms)
+[office-02] console 证据：
+（无 console.error / pageerror）
+  ✓  45 e2e/line9-office.spec.ts:51:3 › 业务线9：office 预览 › office-02：xlsx 真实 zip → 表格渲染 + sheet 标签切换 (572ms)
+
+  45 passed (46.7s)
+EXIT=0
