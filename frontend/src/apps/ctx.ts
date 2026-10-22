@@ -42,7 +42,13 @@ export function createAppCtx(deps: AppCtxDeps): AppCtx {
     t: (key, params) => (params === undefined ? deps.t(key) : deps.t(key, params)),
     theme: deps.theme,
     notify: (type, payload) => {
-      deps.notifyFileChanged({ key: payload.key, action: mapNotifyAction(type), from: payload.from })
+      // html-open-rejected = html-viewer 外链代理拒绝面（非法 scheme 等）——非文件变更,
+      // 不误入 notifyFileChanged; 控制台留痕（用户可见提示通道候批）
+      if (type === 'html-open-rejected') {
+        console.warn('[mmx] html open rejected:', (payload as { url?: string }).url)
+        return
+      }
+      deps.notifyFileChanged({ key: (payload as { key: string }).key, action: mapNotifyAction(type), from: (payload as { from?: string }).from })
     },
     // 条件展开：能力缺省时 ctx 上不带该键（渲染器按 getMediaUrl? 探测，回落 Blob 路径）
     ...(deps.getMediaUrl ? { getMediaUrl: (key: string) => deps.getMediaUrl!(key) } : {}),

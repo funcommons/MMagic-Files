@@ -190,6 +190,7 @@ const APP_CATALOG: CatalogApp[] = [
   { id: "image-viewer", label: "图片查看", kind: "view", exts: ["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"] },
   { id: "markdown-renderer", label: "Markdown 预览", kind: "view", exts: ["md", "markdown"] },
   { id: "code-editor", label: "代码编辑", kind: "edit", exts: ["md", "markdown", "txt", "json", "csv", "tsv", "js", "ts", "css", "html", "xml", "sql", "sh", "yaml", "py", "conf"] },
+  { id: "html-viewer", label: "HTML 预览", kind: "view", exts: ["html", "htm"] },
   { id: "csv-table", label: "CSV 表格", kind: "view", exts: ["csv", "tsv"] },
   { id: "pdf-viewer", label: "PDF 查看", kind: "view", exts: ["pdf"] },
   { id: "docx-viewer", label: "Word 查看", kind: "view", exts: ["docx"] },

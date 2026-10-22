@@ -19,6 +19,9 @@ export const FALLBACK_APP_ID = 'fallback-download'
 export const MARKDOWN_MAX_BYTES = 5 * 1024 * 1024
 export const CODE_MAX_BYTES = 5 * 1024 * 1024
 export const CSV_TABLE_MAX_BYTES = 20 * 1024 * 1024
+
+/** html-viewer 预览上限（对齐 html-editor 插件口径——html 资产内联后的合理上界） */
+export const HTML_VIEWER_MAX_BYTES = 20 * 1024 * 1024
 export const HEIC_VIEWER_MAX_BYTES = 32 * 1024 * 1024
 export const MERMAID_MAX_BYTES = 5 * 1024 * 1024
 
@@ -45,6 +48,9 @@ export const BUILTIN_APP_SPECS: BuiltinAppSpec[] = [
   // F3：渲染类应用先于 code-editor 注册（注册序=默认应用优先级）——
   // csv/tsv 默认进 csv-table 表格预览，code-editor 的文本态经「打开方式」可达（不再抢占默认）。
   { code: 'csv-table', labelKey: 'app.csv-table', type: 'view', matcher: { ext: ['csv', 'tsv'] }, actions: ['preview'], maxBytes: CSV_TABLE_MAX_BYTES },
+  // html 同口径：默认进 html-viewer 净化式预览（sandbox srcdoc + 跳转代理=确认后新 tab，同 html-editor
+  // 插件预览态）；code-editor 源码态与 html-editor 插件三态编辑均经「打开方式」可达。
+  { code: 'html-viewer', labelKey: 'app.html-viewer', type: 'view', matcher: { ext: ['html', 'htm'] }, actions: ['preview'], maxBytes: HTML_VIEWER_MAX_BYTES },
   {
     code: 'code-editor',
     labelKey: 'app.code-editor',

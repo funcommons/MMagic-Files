@@ -260,7 +260,9 @@ export interface AppCtx {
   /** i18n（强制走宿主词典；params=具名插值占位实参，如 {limit}——渲染器超限文案 R2-03/R2-05） */
   t(key: string, params?: Record<string, unknown>): string
   /** 事件上报 → 宿主 fileChanged（'saved'|'changed'→put；'deleted'→delete；'renamed'→rename） */
-  notify(type: 'saved' | 'changed' | 'deleted' | 'renamed', payload: { key: string; from?: string }): void
+  /** html-open-rejected: html-viewer 外链代理拒绝面（净化沙箱——非法 scheme 等, payload.url=被拒 URL） */
+  notify(type: 'saved' | 'changed' | 'deleted' | 'renamed' | 'html-open-rejected',
+    payload: { key: string; from?: string } | { url: string }): void
   /** 主题 token（CSS 变量名集） */
   theme: Record<string, string>
   /** 可选能力：媒体直链（S3=预签名 URL / url source=原始 GET URL）——渲染器用 <video src> 拿浏览器原生 Range */

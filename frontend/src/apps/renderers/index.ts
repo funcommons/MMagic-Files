@@ -8,6 +8,7 @@ import { markdownRenderer } from './markdown'
 import { videoRenderer, audioRenderer } from './media'
 import { pdfRenderer } from './pdf'
 import { csvTableRenderer } from './csv'
+import { htmlViewerRenderer } from './html'
 import { imageViewRenderer } from './image'
 import { heicViewerRenderer } from './heic'
 import { codeEditorRenderer } from './code'
@@ -24,6 +25,7 @@ export const RENDERERS: Partial<Record<string, AppDefinition['renderer']>> = {
   'pdf-viewer': pdfRenderer,
   'code-editor': codeEditorRenderer,
   'csv-table': csvTableRenderer,
+  'html-viewer': htmlViewerRenderer,
   'docx-viewer': docxRenderer,
   'xlsx-viewer': xlsxRenderer,
   'heic-viewer': heicViewerRenderer, // Lane F6
