@@ -202,6 +202,10 @@ describe('上传队列', () => {
       expect(f.err).toBeInstanceOf(SdkError)
       expect((f.err as SdkError).code).toBe(ERROR_CODES.S3_ERROR) // SdkError 原样透传
     }
+    // 失败原因可查（errorOf → 面板失败行展示，不再只给「失败」两字）：格式 `(code) message`
+    for (const r of res.accepted) {
+      expect(q.errorOf(r.id)).toMatch(/^\(\d+\) .+/)
+    }
   })
 
   it('abort：排队中任务直接取消（不发起任何请求）', async () => {

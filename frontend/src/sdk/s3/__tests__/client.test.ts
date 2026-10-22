@@ -1,5 +1,5 @@
 /**
- * S3 API 子集客户端测试：mock fetcher 断言请求形态（URL/方法/关键头/query）+ 响应映射
+ * S3 API 子集客户端测试：mock fetcher 断言请求形态（URL/方法/关键头/query）+ 响应映射 + setCredentials 热替换凭证（v1.1）
  */
 import { describe, expect, it, vi } from 'vitest'
 import { ERROR_CODES, SdkError } from '../../errorCodes'
@@ -342,5 +342,41 @@ describe('presignPutUrl（分享「上传链接」：与 getPresignedUrl 完全�
     const { client } = makeClient([])
     expect(new URL(client.presignPutUrl('k', 999_999_999, T)).searchParams.get('X-Amz-Expires')).toBe('604800')
     expect(new URL(client.presignPutUrl('k', 0, T)).searchParams.get('X-Amz-Expires')).toBe('1')
+  })
+})
+
+describe('setCredentials（v1.1 setCredentials 通道：热替换私有凭证，下一请求签名即用新值）', () => {
+  it('替换后首个请求即用新凭证：Authorization Credential=新 accessKeyId、token 同步换', async () => {
+    const { fetcher, client } = makeClient([xml('<ListBucketResult/>'), xml('<ListBucketResult/>')])
+    await client.list('p/')
+    expectSignedHeaders(fetcher.mock.calls[0]?.[1]) // 旧凭证 AKID / TOK
+    client.setCredentials({ accessKeyId: 'AKID2', accessKeySecret: 'SK2', sessionToken: 'TOK2' })
+    await client.list('p/')
+    const headers = (fetcher.mock.calls[1]?.[1]?.headers ?? {}) as Record<string, string>
+    expect(headers.authorization).toMatch(/^AWS4-HMAC-SHA256 Credential=AKID2\//)
+    expect(headers['x-amz-security-token']).toBe('TOK2')
+    expect(headers['x-amz-content-sha256']).toBeTruthy()
+  })
+
+  it('secret 热替换参与签名：同 accessKeyId 下签名值改变（Credential 串不变，变化只能来自 secret）', () => {
+    const T = Date.UTC(2026, 0, 1, 0, 0, 0)
+    const { client } = makeClient([])
+    const before = client.getPresignedUrl('k', 3600, T)
+    client.setCredentials({ accessKeyId: 'AKID', accessKeySecret: 'SK-rotated', sessionToken: 'TOK' })
+    const after = client.getPresignedUrl('k', 3600, T)
+    const q = new URL(after).searchParams
+    expect(q.get('X-Amz-Signature')).toMatch(/^[0-9a-f]{64}$/)
+    expect(q.get('X-Amz-Signature')).not.toBe(new URL(before).searchParams.get('X-Amz-Signature'))
+    expect(q.get('X-Amz-Credential')).toBe(new URL(before).searchParams.get('X-Amz-Credential'))
+    expect(q.get('X-Amz-Security-Token')).toBe('TOK')
+  })
+
+  it('替换后预签名链接即刻换用新凭证（X-Amz-Credential / Security-Token）', () => {
+    const T = Date.UTC(2026, 0, 1, 0, 0, 0)
+    const { client } = makeClient([])
+    client.setCredentials({ accessKeyId: 'AKID2', accessKeySecret: 'SK2', sessionToken: 'TOK2' })
+    const q = new URL(client.getPresignedUrl('k', 3600, T)).searchParams
+    expect(q.get('X-Amz-Credential')).toBe('AKID2/20260101/us-east-1/s3/aws4_request')
+    expect(q.get('X-Amz-Security-Token')).toBe('TOK2')
   })
 })

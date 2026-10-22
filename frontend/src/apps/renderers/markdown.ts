@@ -31,6 +31,9 @@ function hardenLinks(root: HTMLElement): void {
   }
 }
 
+/** mermaid 渲染序号（模块级递增；render 的 id 唯一性） */
+let mermaidSeq = 0
+
 /** mermaid 增强：拿到围栏块后动态 import；任何一步失败都原样保留 markdown-it 输出 */
 async function enhanceMermaid(root: HTMLElement): Promise<void> {
   const nodes = Array.from(root.querySelectorAll<HTMLElement>(MERMAID_SELECTOR))
@@ -38,8 +41,21 @@ async function enhanceMermaid(root: HTMLElement): Promise<void> {
   try {
     // 动态 import：mermaid 体积大，绝不入主 bundle；jsdom/弱网下失败走 catch 降级
     const mermaid = (await import('mermaid')).default
-    mermaid.initialize({ startOnLoad: false })
-    await mermaid.run({ nodes })
+    // suppressErrorRendering：mermaid 10+ 解析失败会自行向 DOM 注入全幅「Syntax error」错误图——关闭
+    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true })
+    // 逐块 render（不用 run：v12 run(suppressErrors) 对失败块连代码原文一起吞掉）——
+    // 成功注 SVG（run 时代同款：注入 code 元素内），失败该块原样保留普通代码块（静默降级）
+    await Promise.all(
+      nodes.map(async (node) => {
+        try {
+          const code = node.textContent ?? ''
+          const { svg } = await mermaid.render(`mmf-mmd-${(mermaidSeq += 1)}`, code)
+          node.innerHTML = svg
+        } catch {
+          // 静默：该块保留普通代码块形态
+        }
+      }),
+    )
   } catch {
     // 静默降级：保留普通代码块形态，不影响正文其余部分
   }

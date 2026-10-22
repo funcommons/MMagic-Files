@@ -276,8 +276,19 @@ describe('parseAppConfig：file 缺项', () => {
     expect(detailOf(e)).toContain('缺 source')
   })
 
-  it('source.url 缺失/空 → 4001', () => {
+  it('source.url 缺失 → 4001（空串合法，见下）', () => {
     const e = expectBad(() => parseAppConfig('#file=' + enc({ ...fileJson, source: { method: 'GET' } })))
+    expect(detailOf(e)).toContain('source.url')
+  })
+
+  it('source.url 空串 → 合法（v1.2 无源装载：容器模式，boot 不自动打开源文件）', () => {
+    const cfg = parseAppConfig('#file=' + enc({ ...fileJson, source: { url: '' }, name: 'container' })) as SingleFileConfig
+    expect(cfg.mode).toBe('file')
+    expect(cfg.source.url).toBe('')
+  })
+
+  it('source.url 非字符串（数字）→ 4001', () => {
+    const e = expectBad(() => parseAppConfig('#file=' + enc({ ...fileJson, source: { url: 42 } })))
     expect(detailOf(e)).toContain('source.url')
   })
 

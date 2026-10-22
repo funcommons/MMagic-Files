@@ -44,8 +44,9 @@ test.describe('业务线7：features 门控（delete=false）', () => {
     const cap = attachConsole(page)
     await openHost(page)
     const frame = floc(page)
-    // 先选中一行（排除「无选中禁用」的干扰，专证门控）
+    // 先选中并打开一行（排除「无选中禁用」的干扰，专证门控；选中簇仅在已开 tab 时显示）
     await frame.locator('[data-testid="row"]', { hasText: 'notes.txt' }).click()
+    await frame.locator('[data-testid="row"]', { hasText: 'notes.txt' }).first().dblclick()
     // 手册承诺「UI 隐藏」：删除入口不渲染。修复前佐证（feat-02-delete-button-still-enabled-FINDING.png）：
     // 按钮可见且可点。
     const delBtn = toolbarButton(frame, '删除')

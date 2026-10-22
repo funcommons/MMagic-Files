@@ -268,6 +268,49 @@ describe('收包：origin 白名单', () => {
   })
 })
 
+// ───────────────────────── 收包：同窗回环（库内自 postMessage 噪声） ─────────────────────────
+
+describe('收包：同窗回环', () => {
+  /** 派发一条 e.source=本窗 的回环消息（插件内库如 pdf.js/univer 的自投递） */
+  function loopback(data: unknown, origin: string) {
+    window.dispatchEvent(new MessageEvent('message', { data, origin, source: window }))
+  }
+
+  it('同窗回环（origin 在白名单外，如插件库自 :origin 落回）→ 真静默：不打 warn', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { bus } = makeBus()
+    const handler = vi.fn()
+    bus.on('navigate', handler)
+
+    const OWN_ORIGIN = 'https://files.example.com' // 本窗自身源（iframe 场景=白名单外的自己）
+    loopback({ some: 'internal-lib-message' }, OWN_ORIGIN)
+    loopback(cmdEnvelope('navigate', 'req-loop'), OWN_ORIGIN)
+    expect(warnSpy).not.toHaveBeenCalled()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('同窗回环即便 origin 在白名单内也丢弃（回环不得冒充对端包）', () => {
+    const { bus, remote } = makeBus()
+    const handler = vi.fn()
+    bus.on('navigate', handler)
+
+    loopback(cmdEnvelope('navigate', 'req-loop', { path: '/x' }), HOST_ORIGIN)
+    expect(handler).not.toHaveBeenCalled()
+    expect(remote.postMessage).not.toHaveBeenCalled()
+  })
+
+  it('回环不干扰后续对端消息：回环后再来白名单内对端包照常送达', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { bus } = makeBus()
+    const handler = vi.fn()
+    bus.on('navigate', handler)
+
+    loopback({ noise: true }, 'https://files.example.com')
+    incoming(cmdEnvelope('navigate', 'req-1', { path: '/x' }))
+    expect(handler).toHaveBeenCalledTimes(1)
+  })
+})
+
 // ───────────────────────── 收包：信封过滤（§二） ─────────────────────────
 
 describe('收包：信封过滤', () => {

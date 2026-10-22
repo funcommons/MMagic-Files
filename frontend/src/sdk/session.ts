@@ -117,6 +117,17 @@ export class SessionController {
     if (this.phase === 'running') this.phase = 'idle'
   }
 
+  /**
+   * 续期重布（v1.1 setCredentials 通道）：更新死线源并重新 start()（重算重布预警/到期定时器，
+   * 预警一次性标记复位）。已终态 no-op（终态不可逆）；双缺省=保持现死线仅重布。
+   */
+  extend(opts: { ttlSeconds?: number; expiresAt?: number }): void {
+    if (this.phase === 'ended') return
+    if (opts.expiresAt !== undefined) this.deps.expiresAt = opts.expiresAt
+    if (opts.ttlSeconds !== undefined) this.deps.ttlSeconds = opts.ttlSeconds
+    this.start()
+  }
+
   /** 宿主显式自毁：进终态并回调 onExpire('destroyed')（已终态则 no-op） */
   destroy(): void {
     this.end('destroyed')

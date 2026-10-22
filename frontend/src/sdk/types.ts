@@ -25,6 +25,7 @@ export type CommandName =
   | 'navigate' | 'openFile' | 'closeTab' | 'getTabs' | 'select'
   | 'createFolder' | 'uploadFiles' | 'download' | 'rename' | 'remove'
   | 'registerApp' | 'setTheme' | 'setLocale' | 'getInfo' | 'destroy'
+  | 'setCredentials' | 'getApps'
 
 export type EventName =
   | 'ready' | 'pathChanged' | 'fileOpened' | 'tabClosed'
@@ -71,6 +72,8 @@ export interface PluginEntry {
   /** sha384-<hex>（SRI 标签注入校验） */
   sri?: string
   lazy?: boolean
+  /** 透传给 activate(sdk, options) 的插件参数（v1.1 增补，只增不改义；缺省不传） */
+  options?: Record<string, unknown>
 }
 
 export interface WorkspaceConfig {
@@ -83,7 +86,14 @@ export interface WorkspaceConfig {
   features?: Record<string, boolean>
   permissions?: { denyExts?: string[] }
   plugins?: PluginEntry[]
-  ui?: { initialPath?: string; defaultOpen?: string }
+  ui?: {
+    initialPath?: string
+    defaultOpen?: string
+    /** 文件树形态：sidebar=常驻侧栏（默认）/ drawer=左抽屉（预览区左上角图标唤起） */
+    treeMode?: 'sidebar' | 'drawer'
+    /** 文件树标题覆写（缺省=前缀末段；根=「根目录」） */
+    treeTitle?: string
+  }
 }
 
 export interface FileSource {
@@ -110,6 +120,8 @@ export interface SingleFileConfig {
   features?: Record<string, boolean>
   /** 可选：宿主 origin 白名单；缺省时装配层从 document.referrer 推导（§4.1b origin 校验同工作台） */
   security?: { allowedOrigins: string[] }
+  /** v1.2：单文件模式插件（语义同工作台——内存文件独立区「选应用/编辑模式」的命中来源） */
+  plugins?: PluginEntry[]
 }
 
 export type AppConfig = WorkspaceConfig | SingleFileConfig
@@ -176,10 +188,22 @@ export interface UploadFilesReply { accepted: UploadAccepted[]; rejected: Upload
 export interface DownloadPayload { paths: string[] }
 export interface RenamePayload { from: string; to: string }
 export interface RemovePayload { paths: string[] }
-/** 宿主运行时注册=动态追加配置注入插件（传 {url,sri}，函数不可克隆） */
-export interface RegisterAppPayload { url: string; sri?: string; lazy?: boolean }
-export interface RegisterAppReply { appId: string }
+/** 宿主运行时注册=动态追加配置注入插件（传 {url,sri}，函数不可克隆；options 透传 activate 第二参） */
+export interface RegisterAppPayload { url: string; sri?: string; lazy?: boolean; options?: Record<string, unknown> }
+export interface RegisterAppReply {
+  appId: string
+  /** v1.1：本次调用是否处于该 url 的首次激活路径；false=同 url 幂等短路——本次传入的 options 不生效（宿主应改走重载/刷新） */
+  applied?: boolean
+}
 export interface SetThemePayload { theme: 'light' | 'dark' | 'auto' }
+/** v1.1：宿主重签通道——热替换会话凭证并（可选）重置自毁线（setCredentials 命令） */
+export interface SetCredentialsPayload {
+  credentials: S3Credentials
+  /** 新自毁线（秒，自 now 起）；与 expiresAt 都缺省=保持现死线 */
+  ttlSeconds?: number
+  /** 新死线（epoch ms，优先于 ttlSeconds） */
+  expiresAt?: number
+}
 export interface SetLocalePayload { locale: 'zh-CN' | 'en-US' }
 export interface GetInfoReply {
   sdkVersion: string
@@ -217,12 +241,15 @@ export interface AppMatcher {
   probe?: (file: { name: string; mime?: string; size?: number }) => boolean
 }
 
+/** beforeDispose 触发原因（v1.1 显式化：expired/destroy=通知式，实现应跳过用户询问直接放行） */
+export type DisposeReason = 'close' | 'expired' | 'destroy'
+
 /** 渲染实例：dispose 三路必调；getState 供切回 tab 重跑时注入 savedState */
 export interface AppInstance {
   dispose(): void
   getState?(): unknown
-  /** Promise<boolean>：false=暂缓关闭；3s 超时强制放行；expired/destroy 只通知不询问 */
-  beforeDispose?(): boolean | Promise<boolean>
+  /** Promise<boolean>：false=暂缓关闭；3s 超时强制放行；expired/destroy 只通知不询问（reason 参数 v1.1 显式化——宿主 expire 路径已传 'expired'） */
+  beforeDispose?(reason?: DisposeReason): boolean | Promise<boolean>
 }
 
 /** 插件能力面（白名单）：凭证不出，字节流进出 */
@@ -246,7 +273,7 @@ export interface AppDefinition {
   /** 全局唯一（registry 键；openFile {appId} 引用） */
   id: string
   matcher: AppMatcher
-  renderer: (el: HTMLElement, file: { key: string; name: string; size: number }, ctx: AppCtx, savedState?: unknown) => void | AppInstance | Promise<void | AppInstance>
+  renderer: (el: HTMLElement, file: { key: string; name: string; size: number }, ctx: AppCtx, savedState?: unknown, appOptions?: Record<string, unknown>) => void | AppInstance | Promise<void | AppInstance>
   actions?: AppAction[]
   /** i18n key 或字面量 */
   label?: string

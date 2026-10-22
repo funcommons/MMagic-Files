@@ -122,7 +122,8 @@ export class S3SigV4Client implements S3Client {
   private readonly endpoint: string
   private readonly bucket: string
   private readonly region: string
-  private readonly credentials: BackendConfig['credentials']
+  /** v1.1 起可热替换（setCredentials 命令）；签名按请求时点读取现值 */
+  private credentials: BackendConfig['credentials']
   /** 会话 TTL（秒）；预签名有效期上限对齐它（URL 不比凭证活得久） */
   private readonly ttlSeconds?: number
   /** §4.3 时钟偏移（observeServerDate 校准值），签名时叠加到本机时间 */
@@ -137,6 +138,14 @@ export class S3SigV4Client implements S3Client {
     this.credentials = config.credentials
     this.ttlSeconds = config.ttlSeconds
     this.fetcher = fetcher
+  }
+
+  /**
+   * v1.1（setCredentials 命令）：热替换会话凭证——下一请求即用新值，在途请求不受影响（各自签名时点已定）。
+   * 只换凭证不碰 endpoint/bucket/prefix 域语义。
+   */
+  setCredentials(credentials: BackendConfig['credentials']): void {
+    this.credentials = credentials
   }
 
   /** §4.3：拿到 S3 响应后按 Date 头校准时钟，后续签名自动携带偏移 */

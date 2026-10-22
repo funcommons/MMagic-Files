@@ -1,41 +1,33 @@
 <script lang="ts">
-/**
- * Lane H3 分页口径（决策注释）：客户端切片分页——tree-store 的 loadDir 已按
- * continuationToken 全量聚合写入缓存（与 e2e ws-03 聚合口径兼容），分页只是对缓存
- * entries（dirs 前 files 后、保持既有顺序）的切片展示，翻页不重复发 S3 请求。
- */
-/** 每页条数（导出可测）：entries 超过该值时列表底部出分页条 */
-export const TREE_PAGE_SIZE = 100
-
 /** Lane H-2 type-ahead 同键接续窗口（ms）：窗口内重复同键=跳到下一个匹配（Quantum 循环口径） */
 export const TYPE_AHEAD_WINDOW_MS = 500
 </script>
 
 <script setup lang="ts">
 /**
- * TreePanel — 当前目录列表 + 面包屑（Wave2-T2；Lane F5 交互面改版）。
+ * TreePanel — 展开树（2026-10 范式：目录原位展开，VS Code 口径；Wave2-T2 起家/Lane F5 交互面）。
  * UI 直连 store：props.controller 为 FileTreeController（不依赖 setup 单例，便于测试）。
- * 交互模型（对齐手册「双击/回车打开」）：
- *  - 单击=仅选中（ctrl/cmd=切换、shift=自锚点范围）→ emit('select', entries[])（多选语义，父层持有）；
- *  - 双击文件/回车=emit('open', entry)（Home 接预览）；目录双击=进入（loadDir）；
- *  - 行右键=上下文菜单（features.openWithMenu!==false 门控；Esc/外点关闭）：
- *    打开 / 打开方式（listMatches>1 时列应用名）→ emit('open-with') / 重命名/删除/下载/新建目录
- *    → emit('menu-action')（操作链在 Home 层经 workspace-ops 收口）；
+ * 交互模型：
+ *  - 目录：单击名字/chevron=选中+原位展开/收起（loadDir 懒加载；激活目录 currentPath 随动，
+ *    上传/新建目录/拖拽落点跟随）；双击目录=展开/收起；Alt+↓/↑=展开/收起首个选中目录；
+ *  - 文件：单击=选中（ctrl/cmd 切换、shift 自锚点范围）→ emit('select')；双击/回车=emit('open')；
+ *  - 行右键=上下文菜单（features.openWithMenu!==false 门控）：打开/打开方式/重命名/删除/下载/分享
+ *    → emit('menu-action'/'open-with')（操作链在 Home 层经 workspace-ops 收口）；
+ *    空白处右键=上传/新建目录/刷新（同门控）；
+ *  - 树头动作（创建簇小图标）：上传（隐藏 input→emit drop-files）/新建目录/刷新/搜索（emit search）；
  *  - 容器拖拽文件=上传 → emit('drop-files', {files, path})（enqueue+拒收 toast 在 Home 收口）；
- *  - 面包屑点击回跳；未加载/加载中 FcSkeleton、空态 FcEmpty、失败态 FcEmpty(error)+重试；
- *  - Lane H3：entries>TREE_PAGE_SIZE 时底部出分页条（« ‹ n / total › » + 跳页输入）；
- *  - Lane H-2 键盘流（全部收口本组件，判定纯工具在 shortcuts.ts）：Alt+↑=父目录、
- *    Alt+↓=进首个选中目录、Esc=清空选中、字母/数字 type-ahead 循环跳转（500ms 同键接续）、
- *    双击列表空白区=全选当前页。
+ *  - 未加载/加载中 FcSkeleton、空态/失败态 FcEmpty(error)+重试；
+ *  - 键盘流（shortcuts.ts 纯工具）：Esc=清空选中、字母/数字 type-ahead 循环跳转（500ms 接续）、
+ *    双击列表空白区=全选可见行。
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { FcButton, FcContextMenu, FcEmpty, FcSkeleton } from '@/components/sdk'
 import type { MenuItem } from '@/components/sdk/overlay/FcContextMenu.vue'
 import type { AppRegistry } from '@/apps/registry'
 import { normalizePrefix } from '../tree-store'
+import { createWorkspaceOps } from './workspace-ops'
 import type { FileTreeController } from '../tree-store'
-import { formatBytes } from '../format'
 import type { S3ObjectSummary } from '@/sdk/types'
 import { isTypingTarget, matchesHotkey } from './shortcuts'
 
@@ -43,6 +35,8 @@ const props = defineProps<{
   controller: FileTreeController
   /** 树根域（面包屑从此截断显示；默认 bucket 根） */
   rootPrefix?: string
+  /** 树标题覆写（ui.treeTitle；缺省=rootPrefix 末段，根=t('files.tree.root')「根目录」） */
+  treeTitle?: string
   /** 当前选中集（多选数组；父层持有并回传高亮） */
   selected?: S3ObjectSummary[]
   /** features 门控（openWithMenu/rename/delete/download/mkdir；仅显式 false 关） */
@@ -59,101 +53,83 @@ const emit = defineEmits<{
   /** 「打开方式」指定应用；Home 接 preview.open(entry, { appId }) */
   'open-with': [payload: { entry: S3ObjectSummary; appId: string }]
   /** 菜单动作（重命名/删除/下载/分享/新建目录）；操作链在 Home 层收口 */
-  'menu-action': [payload: { action: 'rename' | 'delete' | 'download' | 'share' | 'mkdir'; entry: S3ObjectSummary }]
+  'menu-action': [payload: { action: 'rename' | 'delete' | 'download' | 'share' | 'mkdir'; entry?: S3ObjectSummary }]
   /** 拖拽落文件（Home 接 queue.enqueue + 拒收 toast） */
   'drop-files': [payload: { files: File[]; path: string }]
+  /** 打开全局搜索面板（树头搜索图标；面板与数据流在 Home 收口，与旧 Toolbar search 同链） */
+  search: []
 }>()
 
 const { t, te } = useI18n()
 
-const bucket = computed(() => props.controller.nodes.get(normalizePrefix(props.controller.currentPath)))
-const entries = computed<S3ObjectSummary[]>(() => {
-  const b = bucket.value
-  return b ? [...b.dirs, ...b.files] : []
-})
-const notLoaded = computed(() => !bucket.value?.loaded)
-
-// ── 客户端切片分页（Lane H3，口径见文件头 script 注释）──
-
-const page = ref(1)
-const totalPages = computed(() => Math.max(1, Math.ceil(entries.value.length / TREE_PAGE_SIZE)))
-/** 当前页可见序列：dirs+files 拼接序列的切片（与既有列表视觉顺序一致，目录与文件可同页共存） */
-const pagedEntries = computed(() =>
-  entries.value.slice((page.value - 1) * TREE_PAGE_SIZE, page.value * TREE_PAGE_SIZE),
-)
-
 /**
- * 页码复位：目录深入/面包屑回跳/刷新（loadDir 重写 bucket）、文件变更（applyChange
- * 原地增删条目）、props(controller) 更新——都会重建 entries 序列，统一复位到第 1 页
- * （防越界页）；entries 变短时复位结果恒为合法页。
+ * 2026-10 展开树改版：目录不再「进入」（视图切换+面包屑），而是原位展开（VS Code 口径）。
+ * 树基 = 挂载期捕获的 rootPrefix（未显式传时回退 currentPath——session 起始目录；捕获一次
+ * 不随 currentPath 漂移）。可见行 = 从根深度优先走 expanded 集；目录子级由 nodes 缓存懒加载。
  */
-watch(entries, () => {
-  page.value = 1
-})
-/** 防御：entries 变短致 totalPages 收缩时钳回合法页，绝不渲染空页 */
-watch(totalPages, (n) => {
-  if (page.value > n) page.value = n
-})
+const rootPrefix = normalizePrefix(props.rootPrefix ?? props.controller.currentPath)
 
-/** 跳页：越界值钳到 [1, totalPages] */
-function goTo(n: number): void {
-  page.value = Math.min(Math.max(n, 1), totalPages.value)
+/** 已展开目录 key 集（indirection ref 保证整集替换可触发 rows 重算） */
+const expanded = ref<Set<string>>(new Set())
+
+interface Row {
+  entry: S3ObjectSummary
+  depth: number
 }
 
-/** 跳页输入草稿（type=number 时 vue v-model 可能给 number，故 string|number 双收） */
-const jumpDraft = ref<string | number>('')
+/** 可见行序列：根起 DFS；展开的目录才下钻（未加载=懒加载挂起，不下钻不出行） */
+const rows = computed<Row[]>(() => {
+  const out: Row[] = []
+  const walk = (prefix: string, depth: number): void => {
+    const b = props.controller.nodes.get(prefix)
+    if (!b?.loaded) return
+    for (const d of b.dirs) {
+      out.push({ entry: d, depth })
+      if (expanded.value.has(d.key)) walk(d.key, depth + 1)
+    }
+    for (const f of b.files) out.push({ entry: f, depth })
+  }
+  walk(rootPrefix, 0)
+  return out
+})
+/** 可见条目序列（选中锚点/type-ahead/全选等按行交互的消费面） */
+const rowEntries = computed<S3ObjectSummary[]>(() => rows.value.map((r) => r.entry))
+const notLoaded = computed(() => !props.controller.nodes.get(rootPrefix)?.loaded)
 
-/** 回车确认跳页；非法值（空/非整数/<1）静默复位草稿、留在当前页 */
-function onJumpConfirm(): void {
-  const raw = String(jumpDraft.value).trim()
-  jumpDraft.value = ''
-  const n = Number(raw)
-  if (raw === '' || !Number.isInteger(n) || n < 1) return
-  goTo(n)
-}
+/** 树头标题（基目录名；根域显示「根目录」） */
+const rootName = computed(() => (rootPrefix === '' ? t('files.tree.root') : lastSeg(rootPrefix)))
 
 /** 选中键集（高亮判定） */
 const selectedKeys = computed(() => new Set((props.selected ?? []).map((s) => s.key)))
-
-interface Crumb {
-  prefix: string
-  name: string
-}
-
-const crumbs = computed<Crumb[]>(() => {
-  const root = normalizePrefix(props.rootPrefix ?? '')
-  const cur = props.controller.currentPath
-  const rel = cur.startsWith(root) ? cur.slice(root.length) : cur
-  const list: Crumb[] = [{ prefix: root, name: root === '' ? t('files.tree.root') : lastSeg(root) }]
-  let acc = root
-  for (const seg of rel.split('/')) {
-    if (seg === '') continue
-    acc += `${seg}/`
-    list.push({ prefix: acc, name: seg })
-  }
-  return list
-})
 
 function lastSeg(prefix: string): string {
   const trimmed = prefix.replace(/\/+$/, '')
   return trimmed.slice(trimmed.lastIndexOf('/') + 1) || trimmed
 }
 
-/** 文件大小展示统一走 formatBytes（R2-05：与预览闸/渲染器提示同源口径，删本地重复实现） */
-const formatSize = formatBytes
-
-function typeOf(e: S3ObjectSummary): string {
-  if (e.isDir) return t('files.tree.type-dir')
-  const dot = e.name.lastIndexOf('.')
-  return dot > 0 ? e.name.slice(dot + 1).toUpperCase() : t('files.tree.type-file')
+/**
+ * 展开/收起目录（2026-10 展开树核心）：展开=loadDir（缓存命中不重拉；副作用=激活目录
+ * currentPath 随动——上传/新建目录/拖拽落点跟随用户正在操作的目录）；收起=纯状态。
+ */
+function toggleDir(e: S3ObjectSummary): void {
+  const next = new Set(expanded.value)
+  if (next.has(e.key)) {
+    next.delete(e.key)
+    expanded.value = next
+    return
+  }
+  next.add(e.key)
+  expanded.value = next
+  void props.controller.loadDir(e.key)
 }
 
-function enter(prefix: string): void {
-  void props.controller.loadDir(prefix)
+/** 目录名点击（.stop 防透传行点击）：完全委托行点击口径——选中 + 目录展开/收起（一次 toggle） */
+function onDirNameClick(e: MouseEvent, entry: S3ObjectSummary, index: number): void {
+  onRowClick(e, entry, index)
 }
 
 function retry(): void {
-  void props.controller.loadDir(props.controller.currentPath, { force: true })
+  void props.controller.loadDir(rootPrefix, { force: true })
 }
 
 // ── 多选与打开（Lane F5 交互模型） ──
@@ -162,7 +138,7 @@ function retry(): void {
 let anchorIndex = -1
 
 function onRowClick(e: MouseEvent, entry: S3ObjectSummary, index: number): void {
-  const list = pagedEntries.value // 锚点/范围选择按当前页可见序列（v-for 下标口径一致）
+  const list = rowEntries.value // 锚点/范围选择按当前页可见序列（v-for 下标口径一致）
   if (e.shiftKey && anchorIndex >= 0) {
     const [a, b] = anchorIndex <= index ? [anchorIndex, index] : [index, anchorIndex]
     emit('select', list.slice(a, b + 1))
@@ -179,20 +155,22 @@ function onRowClick(e: MouseEvent, entry: S3ObjectSummary, index: number): void 
   }
   anchorIndex = index
   emit('select', [entry])
+  // 展开树：单击目录行 = 选中并展开/收起（双击文件打开的口径不受影响）
+  if (entry.isDir) toggleDir(entry)
 }
 
-/** 双击：文件=打开预览；目录=进入 */
+/** 双击：文件=打开预览；目录=展开/收起（进入语义已废） */
 function onRowDblClick(entry: S3ObjectSummary): void {
-  if (entry.isDir) enter(entry.key)
+  if (entry.isDir) toggleDir(entry)
   else emit('open', entry)
 }
 
-/** 回车：打开首个选中文件；目录=进入 */
+/** 回车：打开首个选中文件；目录=展开/收起 */
 function openFirstSelected(e: KeyboardEvent): void {
   const first = (props.selected ?? [])[0]
   if (!first) return
   e.preventDefault()
-  if (first.isDir) enter(first.key)
+  if (first.isDir) toggleDir(first)
   else emit('open', first)
 }
 
@@ -200,20 +178,16 @@ function openFirstSelected(e: KeyboardEvent): void {
 
 const listEl = ref<HTMLUListElement | null>(null)
 
-/** Alt+↑：回父目录（到根即止——currentPath 已是根域则无效） */
+/** Alt+↑：收起首个选中的目录（展开树语义；无目录选中=无效） */
 function goParentDir(): void {
-  const root = normalizePrefix(props.rootPrefix ?? '')
-  const cur = normalizePrefix(props.controller.currentPath)
-  if (cur === root || cur === '') return
-  const trimmed = cur.slice(0, -1) // 去尾 '/'（normalizePrefix 保证带尾 '/'；根域已被上守卫拦住）
-  enter(trimmed.slice(0, trimmed.lastIndexOf('/') + 1))
+  const firstDir = (props.selected ?? []).find((s) => s.isDir)
+  if (firstDir && expanded.value.has(firstDir.key)) toggleDir(firstDir)
 }
 
-/** Alt+↓：进入首个选中的目录（无目录选中=无效） */
+/** Alt+↓：展开首个选中的目录（懒加载子级；无目录选中=无效） */
 function enterFirstSelectedDir(): void {
   const firstDir = (props.selected ?? []).find((s) => s.isDir)
-  if (!firstDir) return
-  enter(firstDir.key)
+  if (firstDir && !expanded.value.has(firstDir.key)) toggleDir(firstDir)
 }
 
 /** type-ahead 状态：上次命中字符/时刻/下标（500ms 同键接续窗口，见 TYPE_AHEAD_WINDOW_MS） */
@@ -223,7 +197,7 @@ let typeAheadIdx = -1
 
 /** 从 start（含）循环向后找首个 name 以 ch 开头（大小写不敏感）的条目下标；无命中=-1 */
 function findTypeAhead(start: number, ch: string): number {
-  const list = pagedEntries.value
+  const list = rowEntries.value
   for (let i = 0; i < list.length; i++) {
     const idx = (((start + i) % list.length) + list.length) % list.length
     if (list[idx]!.name.toLowerCase().startsWith(ch)) return idx
@@ -233,7 +207,7 @@ function findTypeAhead(start: number, ch: string): number {
 
 /** 字母/数字 type-ahead：锚点起循环跳转并选中 + 滚动到可见（jsdom 缺 scrollIntoView 走可选调用） */
 function handleTypeAhead(e: KeyboardEvent): void {
-  const list = pagedEntries.value
+  const list = rowEntries.value
   if (list.length === 0) return
   const ch = e.key.toLowerCase()
   const now = Date.now()
@@ -261,8 +235,8 @@ function clearSelection(): void {
 
 /** 双击列表空白区（非行，.self 口径）：全选当前页条目 */
 function onListDblClickSelf(): void {
-  if (pagedEntries.value.length === 0) return
-  emit('select', [...pagedEntries.value])
+  if (rowEntries.value.length === 0) return
+  emit('select', [...rowEntries.value])
 }
 
 /**
@@ -348,7 +322,7 @@ function onMenuSelect(value: string): void {
   menu.value = null
   if (!m) return
   if (value === 'open') {
-    if (m.entry.isDir) enter(m.entry.key)
+    if (m.entry.isDir) toggleDir(m.entry)
     else emit('open', m.entry)
     return
   }
@@ -362,10 +336,58 @@ function onMenuSelect(value: string): void {
 }
 
 function onWindowKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape') menu.value = null
+  if (e.key === 'Escape') {
+    menu.value = null
+    blankMenu.value = null
+  }
 }
 onMounted(() => window.addEventListener('keydown', onWindowKeydown))
 onBeforeUnmount(() => window.removeEventListener('keydown', onWindowKeydown))
+
+// ── 树头动作（创建簇：上传/新建目录/刷新/搜索——2026-10 布局改版自 Toolbar 移入，小图标位） ──
+
+/** 操作链本面板自持（mkdir 即席建目录；与 Home/Toolbar 的 ops 同一 workspace-ops 收口，零复制） */
+const ops = createWorkspaceOps({ tree: props.controller, t })
+const uploadInput = ref<HTMLInputElement | null>(null)
+function pickUpload(): void {
+  uploadInput.value?.click()
+}
+function onUploadPicked(e: Event): void {
+  const input = e.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  if (files.length > 0) emit('drop-files', { files, path: props.controller.currentPath })
+  input.value = '' // 清空以便同一文件可重复选择
+}
+function refreshDir(): void {
+  void props.controller.loadDir(props.controller.currentPath, { force: true })
+}
+
+// ── 空白处右键菜单（上传/新建目录/刷新；openWithMenu 门控与行菜单同口径） ──
+
+const blankMenu = ref<{ x: number; y: number } | null>(null)
+
+function onBlankContextMenu(e: MouseEvent): void {
+  if (props.features?.openWithMenu === false) return // 门控关闭：不拦截，交还浏览器默认菜单
+  if (e.ctrlKey && !e.metaKey) return
+  e.preventDefault()
+  blankMenu.value = { x: e.clientX, y: e.clientY }
+}
+
+const blankMenuItems = computed<MenuItem[]>(() => {
+  const f = props.features ?? {}
+  const items: MenuItem[] = []
+  if (f.upload !== false) items.push({ value: 'upload', label: t('files.toolbar.upload'), icon: 'ri-upload-2-line' })
+  if (f.mkdir !== false) items.push({ value: 'mkdir', label: t('files.menu.mkdir'), icon: 'ri-folder-add-line' })
+  items.push({ value: 'refresh', label: t('files.toolbar.refresh'), icon: 'ri-refresh-line' })
+  return items
+})
+
+function onBlankMenuSelect(value: string): void {
+  blankMenu.value = null
+  if (value === 'upload') pickUpload()
+  else if (value === 'mkdir') void ops.createDir()
+  else if (value === 'refresh') refreshDir()
+}
 
 // ── 拖拽上传 ──
 
@@ -392,32 +414,73 @@ onMounted(() => {
     @dragover.prevent
     @dragleave.prevent="dragDepth = Math.max(0, dragDepth - 1)"
     @drop.prevent="onDrop"
+    @contextmenu="onBlankContextMenu"
   >
-    <nav class="tree-panel__crumbs">
-      <template v-for="(c, i) in crumbs" :key="c.prefix">
-        <span v-if="i > 0" class="tree-panel__crumb-sep">/</span>
-        <FcButton
-          v-if="i < crumbs.length - 1"
-          variant="text"
-          size="sm"
-          class="tree-panel__crumb"
-          data-testid="crumb"
-          @click="enter(c.prefix)"
+    <div class="tree-panel__head">
+      <span class="tree-panel__title" data-testid="tree-title">{{ props.treeTitle ?? rootName }}</span>
+      <!-- 树头动作（创建簇小图标，2026-10 自 Toolbar 迁入）：上传/新建目录/刷新/搜索 -->
+      <span class="tree-panel__tools">
+        <input
+          ref="uploadInput"
+          class="tree-panel__upload-input"
+          type="file"
+          multiple
+          data-testid="upload-input"
+          @change="onUploadPicked"
+        />
+        <button
+          v-if="features?.upload !== false"
+          type="button"
+          class="tree-panel__act"
+          data-testid="tree-upload"
+          :title="t('files.toolbar.upload')"
+          :aria-label="t('files.toolbar.upload')"
+          @click="pickUpload"
         >
-          {{ c.name }}
-        </FcButton>
-        <span v-else class="tree-panel__crumb is-current">{{ c.name }}</span>
-      </template>
-    </nav>
+          <i class="ri-upload-2-line" />
+        </button>
+        <button
+          v-if="features?.mkdir !== false"
+          type="button"
+          class="tree-panel__act"
+          data-testid="tree-mkdir"
+          :title="t('files.toolbar.mkdir')"
+          :aria-label="t('files.toolbar.mkdir')"
+          @click="ops.createDir()"
+        >
+          <i class="ri-folder-add-line" />
+        </button>
+        <button
+          type="button"
+          class="tree-panel__act"
+          data-testid="tree-refresh"
+          :title="t('files.toolbar.refresh')"
+          :aria-label="t('files.toolbar.refresh')"
+          @click="refreshDir"
+        >
+          <i class="ri-refresh-line" />
+        </button>
+        <button
+          type="button"
+          class="tree-panel__act"
+          data-testid="tree-search"
+          :title="t('search.title')"
+          :aria-label="t('search.title')"
+          @click="emit('search')"
+        >
+          <i class="ri-search-line" />
+        </button>
+      </span>
+    </div>
 
     <FcSkeleton
-      v-if="entries.length === 0 && notLoaded && !controller.error"
+      v-if="rows.length === 0 && notLoaded && !controller.error"
       class="tree-panel__state"
       variant="text"
       :rows="6"
     />
     <FcEmpty
-      v-else-if="entries.length === 0 && notLoaded && controller.error"
+      v-else-if="rows.length === 0 && notLoaded && controller.error"
       class="tree-panel__state"
       type="error"
       :title="t('files.tree.load-failed')"
@@ -428,7 +491,7 @@ onMounted(() => {
       </template>
     </FcEmpty>
     <FcEmpty
-      v-else-if="entries.length === 0"
+      v-else-if="rows.length === 0"
       class="tree-panel__state"
       type="empty"
       :title="t('files.tree.empty')"
@@ -443,85 +506,44 @@ onMounted(() => {
       @dblclick.self="onListDblClickSelf"
     >
       <li
-        v-for="(e, i) in pagedEntries"
-        :key="e.key"
+        v-for="(r, i) in rows"
+        :key="r.entry.key"
         class="tree-panel__row"
-        :class="{ 'is-dir': e.isDir, 'is-selected': selectedKeys.has(e.key) }"
+        :class="{ 'is-dir': r.entry.isDir, 'is-selected': selectedKeys.has(r.entry.key) }"
+        :style="{ paddingLeft: 10 + r.depth * 16 + 'px' }"
         data-testid="row"
-        @click="onRowClick($event, e, i)"
-        @dblclick="onRowDblClick(e)"
-        @contextmenu="onRowContextMenu($event, e)"
+        @click="onRowClick($event, r.entry, i)"
+        @dblclick="onRowDblClick(r.entry)"
+        @contextmenu.stop="onRowContextMenu($event, r.entry)"
       >
-        <i class="tree-panel__icon" :class="e.isDir ? 'ri-folder-line' : 'ri-file-line'" />
+        <!-- 展开树：目录行 chevron（点击=展开/收起）；文件行占位对齐 -->
         <button
-          v-if="e.isDir"
+          v-if="r.entry.isDir"
           type="button"
-          class="fc-button tree-panel__name"
-          data-testid="dir-name"
-          @click.stop="enter(e.key)"
+          class="tree-panel__chev"
+          :class="{ 'is-open': expanded.has(r.entry.key) }"
+          :aria-label="t(expanded.has(r.entry.key) ? 'files.tree.dir-collapse' : 'files.tree.dir-expand')"
+          @click.stop="toggleDir(r.entry)"
         >
-          {{ e.name }}
+          <i class="ri-arrow-right-s-line" />
         </button>
-        <span v-else class="tree-panel__name">{{ e.name }}</span>
-        <span class="tree-panel__size">{{ formatSize(e.size) }}</span>
-        <span class="tree-panel__type">{{ typeOf(e) }}</span>
+        <span v-else class="tree-panel__chev-spacer" />
+        <i class="tree-panel__icon" :class="r.entry.isDir ? 'ri-folder-line' : 'ri-file-line'" />
+        <button
+          v-if="r.entry.isDir"
+          type="button"
+          class="tree-panel__name"
+          data-testid="dir-name"
+          @click.stop="onDirNameClick($event, r.entry, i)"
+        >
+          {{ r.entry.name }}
+        </button>
+        <span v-else class="tree-panel__name">{{ r.entry.name }}</span>
       </li>
     </ul>
 
     <!-- 分页条（Lane H3）：单页不渲染；页码纯数字+斜杠（不依赖词典）；aria-label 用纯符号；
          按钮复用 SDK 原生 button 外观类（fc-button-icon/xs=24px 方形图标钮） -->
-    <nav v-if="totalPages > 1" class="tree-panel__pager" data-testid="tree-pager">
-      <button
-        type="button"
-        class="fc-button fc-button-icon fc-button-xs tree-panel__pager-btn"
-        data-testid="tree-pager-first"
-        :disabled="page <= 1"
-        aria-label="«"
-        @click="goTo(1)"
-      >
-        <i class="ri-arrow-left-double-line" />
-      </button>
-      <button
-        type="button"
-        class="fc-button fc-button-icon fc-button-xs tree-panel__pager-btn"
-        data-testid="tree-pager-prev"
-        :disabled="page <= 1"
-        aria-label="‹"
-        @click="goTo(page - 1)"
-      >
-        <i class="ri-arrow-left-line" />
-      </button>
-      <span class="tree-panel__pager-page" data-testid="tree-pager-page">{{ page }} / {{ totalPages }}</span>
-      <button
-        type="button"
-        class="fc-button fc-button-icon fc-button-xs tree-panel__pager-btn"
-        data-testid="tree-pager-next"
-        :disabled="page >= totalPages"
-        aria-label="›"
-        @click="goTo(page + 1)"
-      >
-        <i class="ri-arrow-right-line" />
-      </button>
-      <button
-        type="button"
-        class="fc-button fc-button-icon fc-button-xs tree-panel__pager-btn"
-        data-testid="tree-pager-last"
-        :disabled="page >= totalPages"
-        aria-label="»"
-        @click="goTo(totalPages)"
-      >
-        <i class="ri-arrow-right-double-line" />
-      </button>
-      <input
-        v-model="jumpDraft"
-        type="number"
-        class="tree-panel__pager-jump"
-        data-testid="tree-pager-jump"
-        :min="1"
-        :max="totalPages"
-        @keydown.enter.prevent="onJumpConfirm"
-      >
-    </nav>
 
     <FcContextMenu
       :visible="menu !== null"
@@ -529,6 +551,14 @@ onMounted(() => {
       :items="menuItems"
       @select="onMenuSelect"
       @close="menu = null"
+    />
+    <!-- 空白处右键菜单（上传/新建目录/刷新；行内右键已 .stop 不至此） -->
+    <FcContextMenu
+      :visible="blankMenu !== null"
+      :pos="blankMenu ? { x: blankMenu.x, y: blankMenu.y } : { x: 0, y: 0 }"
+      :items="blankMenuItems"
+      @select="onBlankMenuSelect"
+      @close="blankMenu = null"
     />
   </div>
 </template>
@@ -547,14 +577,87 @@ onMounted(() => {
   }
 }
 
-.tree-panel__crumbs {
+.tree-panel__head {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: 2px;
   padding: 4px 8px;
   border-bottom: 1px solid var(--app-section-border-color);
+}
+
+.tree-panel__title {
+  font-weight: 600;
   font-size: 13px;
+  color: var(--app-text-primary);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tree-panel__tools {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tree-panel__chev {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  color: var(--app-text-tertiary);
+  cursor: pointer;
+  font-size: 14px;
+  transition: transform 0.15s, background 0.15s, color 0.15s;
+
+  &:hover {
+    background: var(--app-bg-muted);
+    color: var(--app-text-primary);
+  }
+  &.is-open {
+    transform: rotate(90deg);
+  }
+}
+
+.tree-panel__chev-spacer {
+  flex: none;
+  width: 18px;
+}
+
+.tree-panel__act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  border-radius: var(--app-radius-button, 6px);
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  font-size: 15px;
+  transition: background 0.15s, color 0.15s;
+
+  &:hover {
+    background: var(--app-bg-muted);
+    color: var(--app-text-primary);
+  }
+}
+
+.tree-panel__upload-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .tree-panel__crumb.is-current {
@@ -584,13 +687,16 @@ onMounted(() => {
 
 .tree-panel__row {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) 72px 64px;
+  /* 展开树 3 列：chevron | 图标 | 名称（2026-10 二次精简：大小/类型列不显示；单元格左对齐） */
+  grid-template-columns: 16px 18px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  justify-items: start;
+  gap: 6px;
+  padding: 2px;
   border-radius: var(--app-radius-md, 8px);
   font-size: 13px;
   cursor: pointer;
+  white-space: nowrap;
 
   &:hover {
     background: var(--brand-bg-hover, var(--app-bg-muted, rgba(0, 0, 0, 0.04)));
@@ -611,7 +717,9 @@ onMounted(() => {
 }
 
 .tree-panel__name {
-  padding: 0;
+  /* 目录名=原生 button（不复用 fc-button 外观类，避免 32px 按钮高度撑高行）；
+     与文件名 span 同类名同样式，padding 2px 紧凑口径 */
+  padding: 2px;
   border: none;
   background: none;
   font: inherit;
@@ -623,67 +731,7 @@ onMounted(() => {
   cursor: pointer;
 
   &:hover {
-    text-decoration: underline;
     color: var(--el-color-primary);
   }
-}
-
-.tree-panel__size,
-.tree-panel__type {
-  font-size: 12px;
-  color: var(--app-text-tertiary);
-  text-align: right;
-}
-
-.tree-panel__pager {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 6px 8px;
-  border-top: 1px solid var(--app-section-border-color);
-}
-
-/* 尺寸/禁用态由全局 fc-button fc-button-icon fc-button-xs 承接（24px 方形图标钮），此处只补 hover 色 */
-.tree-panel__pager-btn {
-  &:hover:not(:disabled) {
-    color: var(--el-color-primary);
-  }
-}
-
-.tree-panel__pager-page {
-  min-width: 48px;
-  font-size: 12px;
-  color: var(--app-text-tertiary);
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
-.tree-panel__pager-jump {
-  width: 56px;
-  height: 24px;
-  padding: 0 4px;
-  margin-left: 4px;
-  border: 1px solid var(--app-section-border-color);
-  border-radius: var(--app-radius-sm, 6px);
-  background: none;
-  color: inherit;
-  font-size: 12px;
-  text-align: center;
-
-  &:focus {
-    outline: none;
-    border-color: var(--el-color-primary);
-  }
-
-  /* 隐藏 number input 的浏览器步进钮（口径：跳页输入框无多余控件） */
-  &::-webkit-outer-spin-button,
-  &::-webkit-inner-spin-button {
-    appearance: none;
-    margin: 0;
-  }
-
-  appearance: textfield;
-  -moz-appearance: textfield;
 }
 </style>

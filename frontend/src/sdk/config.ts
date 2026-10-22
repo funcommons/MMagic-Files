@@ -136,7 +136,7 @@ function validateWorkspace(cfg: Record<string, unknown>, problems: string[]): vo
   }
 }
 
-/** file 模式校验：source.url 必填 + method 枚举 + save(可选) method 枚举/url 必填 */
+/** file 模式校验：source.url 必填（v1.2 起允许空串=无源装载） + method 枚举 + save(可选) method 枚举/url 必填 */
 function validateFile(cfg: Record<string, unknown>, problems: string[]): void {
   const source = cfg.source
   if (typeof source !== 'object' || source === null) {
@@ -144,7 +144,9 @@ function validateFile(cfg: Record<string, unknown>, problems: string[]): void {
     return
   }
   const s = source as Record<string, unknown>
-  if (!isNonEmptyString(s.url)) problems.push('缺 source.url')
+  // v1.2「无源装载」：url='' 合法——容器模式（boot 不自动打开源文件，仅 uploadFiles 内存通道）；
+  // url 缺失/非字符串仍是结构错误。无源时 save 段无回写目标意义，仍按显式配置校验不特殊放行
+  if (typeof s.url !== 'string') problems.push('缺 source.url')
   if (s.method !== undefined && s.method !== 'GET' && s.method !== 'POST') {
     problems.push(`source.method 非法: ${JSON.stringify(s.method)}（仅 GET|POST）`)
   }

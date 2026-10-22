@@ -1,5 +1,5 @@
 /**
- * 15 命令 handler 表（契约《JSSDK 接口文档.md》§三/§四/§五/§七）
+ * 16 命令 handler 表（契约《JSSDK 接口文档.md》§三/§四/§五/§七；setCredentials=v1.1 增补）
  *
  * 门控次序（每命令统一先过两道门，再进实现，overrides 不例外）：
  *   ① 终态门控：会话已终态 → 5000 SESSION_EXPIRED（任何命令，含 destroy——契约 §七「终态后任何 cmd」）；
@@ -36,6 +36,8 @@ export interface SessionHandle {
   remainingMs(): number
   isExpired(): boolean
   destroy(): void
+  /** v1.1：setCredentials 重置自毁线（可选——句柄缺省时不重置） */
+  extend?(opts: { ttlSeconds?: number; expiresAt?: number }): void
 }
 
 /** 单命令实现：payload 进、reply 出（可异步；装配层统一 await 后转 reply 信封） */
@@ -58,17 +60,22 @@ export interface HandlerDeps {
   setLocale(locale: SetLocalePayload['locale']): void
   /** M1+ 接缝：按命令名替换门控后的实现（仍受终态/模式两道门约束） */
   overrides?: Partial<Record<CommandName, CommandHandler>>
+  /** getApps：按文件名枚举命中应用（内存文件独立区的「选打开应用」下拉数据源；装配层注入 registry 查询） */
+  getApps?: (entry: { name: string }) => Array<{ id: string; label: string; actions: string[] }>
 }
 
-/** 单文件模式命令子集（契约 §四）：仅这四条 */
+/** 单文件模式命令子集（契约 §四）：外观三件 + destroy + uploadFiles（仅内存通道——bucket 分支由 overrides 按模式拒绝 4305） */
 const FILE_MODE_ALLOWED: ReadonlySet<CommandName> = new Set<CommandName>([
   'setTheme',
   'setLocale',
   'getInfo',
   'destroy',
+  'uploadFiles',
+  'getApps',
+  'registerApp',
 ])
 
-/** 工作台 tree/IO 类命令（本期桩；M1 接管后经 overrides 注入实现） */
+/** 工作台 tree/IO 类命令（本期桩；M1 接管后经 overrides 注入实现）；setCredentials=核心命令但实现同样在装配层 overrides（main.ts 热替换 client 凭证） */
 const M1_STUB_NAMES = [
   'navigate',
   'openFile',
@@ -80,6 +87,8 @@ const M1_STUB_NAMES = [
   'rename',
   'remove',
   'registerApp',
+  'setCredentials',
+  'getApps',
 ] as const satisfies readonly CommandName[]
 
 const THEME_VALUES = ['light', 'dark', 'auto'] as const
@@ -134,6 +143,16 @@ export function createCommandHandlers(deps: HandlerDeps): Record<CommandName, Co
     rename: m1Stub('rename'),
     remove: m1Stub('remove'),
     registerApp: m1Stub('registerApp'),
+    // v1.1：核心命令但实现在装配层 overrides（main.ts：热替换 client 凭证 + session.extend）——
+    // 桩兜 4301（workspace 未接管/单文件模式走 FILE_MODE 门 4305），凭证校验在 override 内做
+    setCredentials: m1Stub('setCredentials'),
+    // getApps（v1.2 内存文件独立区）：按扩展名枚举命中应用；装配层未注入=能力缺位回空集（不 4005，宿主 UI 可降级为手填 appId）
+    getApps: (payload) => {
+      const name = (asObject(payload).name as unknown) ?? undefined
+      if (typeof name !== 'string' || name.trim() === '') throw new SdkError(ERROR_CODES.BAD_PARAM, 'getApps.name 必须是非空字符串')
+      const apps = deps.getApps?.({ name: name.trim() }) ?? []
+      return { apps }
+    },
 
     setTheme: (payload) => {
       deps.setTheme(asEnum(asObject(payload).theme, THEME_VALUES, 'theme'))

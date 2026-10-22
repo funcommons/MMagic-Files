@@ -3,8 +3,10 @@
  * - TreePanel：列表渲染、面包屑；交互模型（对齐手册「双击/回车打开」）：
  *   单击=仅选中（ctrl/cmd 切换、shift 范围）；双击文件/回车=emit open；目录双击=进入；
  *   右键菜单（openWithMenu 门控、open-with 多应用、动作派发、Esc 关闭）；拖拽上传 emit drop-files；
- *   Lane H3 客户端切片分页（>TREE_PAGE_SIZE 出分页器、切片/跳页/越界钳制/复位）
- * - Toolbar：多选数组语义（下载批量启用/emit 数组、无选中禁用）、features 门控、上传入队、刷新
+ *   2026-10 展开树（目录原位展开，chevron 懒加载；进入/面包屑/分页范式已废）；
+ *   2026-10 布局改版：树头创建簇（上传/新建目录/刷新/搜索小图标钮 + 隐藏 input）与空白右键菜单
+ * - Toolbar（选中簇：分享/下载/重命名/删除，挂预览区头右侧）：多选数组语义（下载批量启用/emit 数组、
+ *   无选中禁用）、features 门控（创建簇已迁树头，不再有上传/新建目录/刷新/搜索）
  * - workspace-ops：mkdir/rename/remove（单选/多选确认文案）/ingestFiles 拒收 toast（Toolbar 与右键菜单共用链）
  * - UploadPanel：任务渲染（名/进度/状态）、取消、清除、无任务不渲染
  * - SessionBanner：正常/预警/到期（保持既有覆盖）
@@ -21,7 +23,7 @@ import type { DirBucket, FileTreeController } from '../tree-store'
 import type { S3ObjectSummary } from '@/sdk/types'
 import type { SessionController } from '@/sdk/session'
 import { createWorkspaceOps } from '../ui/workspace-ops'
-import TreePanel, { TREE_PAGE_SIZE } from '../ui/TreePanel.vue'
+import TreePanel from '../ui/TreePanel.vue'
 import Toolbar from '../ui/Toolbar.vue'
 import UploadPanel from '../ui/UploadPanel.vue'
 import SessionBanner from '../ui/SessionBanner.vue'
@@ -75,17 +77,18 @@ describe('TreePanel', () => {
     expect(tree.loadDir).toHaveBeenCalledWith('root/')
     expect(w.text()).toContain('a')
     expect(w.text()).toContain('b.txt')
-    expect(w.text()).toContain('2.0 KB')
     w.unmount()
   })
 
-  it('目录名点击深入 loadDir；行单击=仅选中（emit select 数组）', async () => {
+  it('目录名点击=选中+展开（loadDir 激活目录）；文件行单击=仅选中（emit select 数组）', async () => {
     const tree = fakeTree({ bucket: mixedBucket() })
     const w = mount(TreePanel, { props: { controller: tree } })
     await w.find('[data-testid="dir-name"]').trigger('click')
-    expect(tree.loadDir).toHaveBeenCalledWith('root/a/')
-    await w.findAll('[data-testid="row"]')[1]!.trigger('click') // b.txt
-    expect(w.emitted('select')?.[0]?.[0]).toEqual([expect.objectContaining({ key: 'root/a/b.txt', isDir: false })])
+    expect(w.emitted('select')?.[0]?.[0]).toEqual([expect.objectContaining({ key: 'root/a/', isDir: true })])
+    expect(tree.loadDir).toHaveBeenCalledWith('root/a/') // 展开副作用=激活目录
+    await w.findAll('[data-testid="row"]')[1]!.trigger('click') // b.txt（a/ 已展开，子级行在 files 段之后）
+    const all = w.emitted('select') ?? []
+    expect(all[all.length - 1]![0]).toEqual([expect.objectContaining({ key: 'root/a/b.txt', isDir: false })])
     w.unmount()
   })
 
@@ -269,126 +272,73 @@ describe('TreePanel', () => {
     empty.unmount()
   })
 
-  it('面包屑可回跳：根 crumb 点击 loadDir 根前缀', async () => {
+  it('展开树：chevron 点击=懒加载展开（loadDir(dir)）+ 子级行下钻；再点收起', async () => {
     const tree = fakeTree({
-      bucket: { dirs: [], files: [file('root/a/b.txt', 'b.txt')], loaded: true },
+      bucket: {
+        dirs: [dir('root/a/', 'a')],
+        files: [file('root/a/b.txt', 'b.txt')],
+        loaded: true,
+      },
     })
-    const w = mount(TreePanel, { props: { controller: tree, rootPrefix: '' } })
-    // crumbs = [根, 'root/']；最后一个为当前态（非按钮），根 crumb 可点回跳
-    const crumbs = w.findAll('[data-testid="crumb"]')
-    expect(crumbs.length).toBe(1)
-    await crumbs[0]!.trigger('click')
-    expect(tree.loadDir).toHaveBeenCalledWith('')
-    w.unmount()
-  })
-})
-
-// ───────────── Lane H3：列表分页跳页（客户端切片，口径见 TreePanel.vue 头注） ─────────────
-
-describe('TreePanel 分页（Lane H3）', () => {
-  /** n 个文件的桶：f001.txt..fNNN.txt（名字字典序=下标序，便于断言切片边界） */
-  const manyBucket = (n: number): DirBucket => ({
-    dirs: [],
-    files: Array.from({ length: n }, (_, i) => {
-      const name = `f${String(i + 1).padStart(3, '0')}.txt`
-      return file(`root/a/${name}`, name)
-    }),
-    loaded: true,
-  })
-
-  const indicator = (w: VueWrapper) => w.find('[data-testid="tree-pager-page"]').text()
-
-  it('entries > PAGE_SIZE 才出分页器（=PAGE_SIZE 不出），页码为纯数字 n / total', () => {
-    const eq = mount(TreePanel, { props: { controller: fakeTree({ bucket: manyBucket(TREE_PAGE_SIZE) }) } })
-    expect(eq.find('[data-testid="tree-pager"]').exists()).toBe(false)
-    expect(eq.findAll('[data-testid="row"]')).toHaveLength(TREE_PAGE_SIZE) // 全量展示
-    eq.unmount()
-
-    const gt = mount(TreePanel, { props: { controller: fakeTree({ bucket: manyBucket(TREE_PAGE_SIZE + 50) }) } })
-    expect(gt.find('[data-testid="tree-pager"]').exists()).toBe(true)
-    expect(indicator(gt)).toBe(`1 / 2`)
-    expect(gt.findAll('[data-testid="row"]')).toHaveLength(TREE_PAGE_SIZE) // 第 1 页切片
-    gt.unmount()
-  })
-
-  it('切片正确：第 2 页首条=第 101 条；prev/first/last 翻页与边界禁用态', async () => {
-    const w = mount(TreePanel, {
-      props: { controller: fakeTree({ bucket: manyBucket(TREE_PAGE_SIZE + 50) }) },
-    })
-    const pagerBtn = (testid: string) => w.find(`[data-testid="tree-pager-${testid}"]`)
-    expect(w.findAll('[data-testid="row"]')[0]!.text()).toContain('f001.txt')
-    expect(pagerBtn('first').attributes('disabled')).toBeDefined() // 第 1 页：首页/上页禁用
-    expect(pagerBtn('prev').attributes('disabled')).toBeDefined()
-
-    await pagerBtn('next').trigger('click')
-    expect(indicator(w)).toBe('2 / 2')
+    // 预置子目录缓存（懒加载完成态）
+    tree.nodes.set('root/a/', { dirs: [], files: [file('root/a/inner.md', 'inner.md')], loaded: true })
+    const w = mount(TreePanel, { props: { controller: tree, rootPrefix: 'root/' } })
+    // 初始：目录行 1 + 文件行 1，子级不可见
+    expect(w.findAll('[data-testid="row"]')).toHaveLength(2)
+    // chevron 点击 → loadDir(dir) + 子级行出现（深度缩进）
+    await w.find('[data-testid="row"] .tree-panel__chev').trigger('click')
+    expect(tree.loadDir).toHaveBeenCalledWith('root/a/')
     const rows = w.findAll('[data-testid="row"]')
-    expect(rows).toHaveLength(50) // 末页余量
-    expect(rows[0]!.text()).toContain('f101.txt') // 第 101 条
-    expect(pagerBtn('next').attributes('disabled')).toBeDefined() // 末页：下页/末页禁用
-    expect(pagerBtn('last').attributes('disabled')).toBeDefined()
-
-    await pagerBtn('last').trigger('click')
-    expect(indicator(w)).toBe('2 / 2') // 已在末页
-    await pagerBtn('prev').trigger('click')
-    expect(indicator(w)).toBe('1 / 2')
-    await pagerBtn('prev').trigger('click') // 已在首页：钳在 1
-    expect(indicator(w)).toBe('1 / 2')
+    expect(rows).toHaveLength(3)
+    expect(rows[1]!.text()).toContain('inner.md')
+    expect(rows[1]!.attributes('style')).toContain('padding-left: 26px') // 10 + depth*16
+    // 再点 chevron → 收起（loadDir 不再新增调用之外的状态变化）
+    const calls = (tree.loadDir as ReturnType<typeof vi.fn>).mock.calls.length
+    await rows[0]!.find('.tree-panel__chev').trigger('click')
+    expect(w.findAll('[data-testid="row"]')).toHaveLength(2)
+    expect((tree.loadDir as ReturnType<typeof vi.fn>).mock.calls.length).toBe(calls)
     w.unmount()
   })
 
-  it('跳页：回车确认跳转；越界钳到合法页；非法值静默复位（不跳转）', async () => {
-    const w = mount(TreePanel, {
-      props: { controller: fakeTree({ bucket: manyBucket(TREE_PAGE_SIZE + 50) }) },
+  // ── 2026-10 布局改版：创建簇（上传/新建目录/刷新/搜索）自旧顶部工具条迁入树头 ──
+
+  it('树头动作：features 缺省渲染 tree-upload/tree-mkdir/tree-refresh/tree-search 四钮（隐藏 file input 同在树面板，testid 仍 upload-input）；features.upload=false 时 tree-upload 不渲染', () => {
+    const w = mount(TreePanel, { props: { controller: fakeTree({ bucket: mixedBucket() }) } })
+    for (const tid of ['tree-upload', 'tree-mkdir', 'tree-refresh', 'tree-search']) {
+      expect(w.find(`[data-testid="${tid}"]`).exists()).toBe(true)
+    }
+    expect(w.find('input[type="file"][data-testid="upload-input"]').exists()).toBe(true)
+    w.unmount()
+
+    const off = mount(TreePanel, {
+      props: { controller: fakeTree({ bucket: mixedBucket() }), features: { upload: false } },
     })
-    const jump = () => w.find('[data-testid="tree-pager-jump"]')
-    const jumpTo = async (v: string) => {
-      await jump().setValue(v)
-      await jump().trigger('keydown.enter')
-    }
-    await jumpTo('2')
-    expect(indicator(w)).toBe('2 / 2')
-    expect((jump().element as HTMLInputElement).value).toBe('') // 确认后清空草稿
-
-    await jumpTo('999') // 越界 → 钳到末页
-    expect(indicator(w)).toBe('2 / 2')
-
-    for (const bad of ['abc', '0', '-1', '']) {
-      await jumpTo(bad) // 非法值 → 静默复位：不跳转、不报错
-      expect(indicator(w)).toBe('2 / 2')
-    }
-
-    await jumpTo('1')
-    expect(indicator(w)).toBe('1 / 2')
-    w.unmount()
+    expect(off.find('[data-testid="tree-upload"]').exists()).toBe(false)
+    expect(off.find('[data-testid="tree-mkdir"]').exists()).toBe(true)
+    expect(off.find('[data-testid="tree-refresh"]').exists()).toBe(true)
+    off.unmount()
   })
 
-  it('复位触发：目录深入 / entries 变短（applyChange delete 语义）/ props(controller) 更新 → 页码复位 1', async () => {
-    const tree = fakeTree({ bucket: manyBucket(TREE_PAGE_SIZE + 50) })
-    const w = mount(TreePanel, { props: { controller: tree } })
-    await w.find('[data-testid="tree-pager-next"]').trigger('click')
-    expect(indicator(w)).toBe('2 / 2')
-
-    // 目录深入：currentPath 切到新目录桶（面包屑回跳同路径机制）→ 复位 1
-    tree.nodes.set('root/sub/', manyBucket(TREE_PAGE_SIZE + 50))
-    tree.currentPath = 'root/sub/'
-    await sleep(0)
-    expect(indicator(w)).toBe('1 / 2')
-    expect(w.findAll('[data-testid="row"]')[0]!.text()).toContain('f001.txt')
-
-    // entries 变短（applyChange delete 后缓存收缩）：越界页钳回合法页（复位 1）；单页后分页器消失
-    await w.find('[data-testid="tree-pager-next"]').trigger('click')
-    expect(indicator(w)).toBe('2 / 2')
-    tree.nodes.get('root/sub/')!.files.splice(TREE_PAGE_SIZE) // 150 → 100 条
-    await sleep(0)
-    expect(w.findAll('[data-testid="row"]')).toHaveLength(TREE_PAGE_SIZE)
-    expect(w.find('[data-testid="tree-pager"]').exists()).toBe(false) // 收缩到单页 → 分页器消失
-
-    // props(controller) 更新：换新 controller → 复位 1
-    await w.setProps({ controller: fakeTree({ bucket: manyBucket(TREE_PAGE_SIZE + 50) }) })
-    expect(w.find('[data-testid="tree-pager"]').exists()).toBe(true)
-    expect(indicator(w)).toBe('1 / 2')
+  it('空白右键：.tree-panel contextmenu（非 ctrl）→ 空白菜单含 上传/新建目录/刷新 三项；features.openWithMenu=false 时不拦截（无菜单）', async () => {
+    const w = mount(TreePanel, {
+      props: { controller: fakeTree({ bucket: mixedBucket() }) },
+      global: { stubs: { teleport: true } },
+    })
+    await w.find('.tree-panel').trigger('contextmenu', { clientX: 20, clientY: 30 })
+    const menu = w.find('.fc-menu')
+    expect(menu.exists()).toBe(true)
+    expect(menu.text()).toContain('files.toolbar.upload') // 上传
+    expect(menu.text()).toContain('files.menu.mkdir') // 新建目录
+    expect(menu.text()).toContain('files.toolbar.refresh') // 刷新
     w.unmount()
+
+    const off = mount(TreePanel, {
+      props: { controller: fakeTree({ bucket: mixedBucket() }), features: { openWithMenu: false } },
+      global: { stubs: { teleport: true } },
+    })
+    await off.find('.tree-panel').trigger('contextmenu')
+    expect(off.find('.fc-menu').exists()).toBe(false)
+    off.unmount()
   })
 })
 
@@ -419,24 +369,18 @@ describe('TreePanel 键盘流（Lane H-2）', () => {
     return all[all.length - 1]?.[0]
   }
 
-  it('Alt+↑：loadDir 当前目录的父目录；已在根域（currentPath=rootPrefix）无效', async () => {
+  it('Alt+↑：收起首个选中的目录（未展开=无效）；无目录选中=无效', async () => {
     const tree = fakeTree({ bucket: alphaBucket() })
-    tree.nodes.set('root/sub/', alphaBucket())
-    tree.currentPath = 'root/sub/'
-    const w = mount(TreePanel, { props: { controller: tree, rootPrefix: '' } })
+    const w = mount(TreePanel, {
+      props: { controller: tree, selected: [dir('root/a/', 'a')] },
+    })
+    // a/ 未展开：Alt+↑ 无效果（仅挂载首刷那一次 loadDir）
     await list(w).trigger('keydown', { key: 'ArrowUp', altKey: true })
-    expect(tree.loadDir).toHaveBeenCalledWith('root/')
+    expect(tree.loadDir).toHaveBeenCalledTimes(1)
     w.unmount()
-
-    // 已在根域：仅挂载首刷那一次 loadDir，按键不触发更多
-    const atRoot = fakeTree({ bucket: alphaBucket() })
-    const w2 = mount(TreePanel, { props: { controller: atRoot, rootPrefix: 'root/' } })
-    await list(w2).trigger('keydown', { key: 'ArrowUp', altKey: true })
-    expect(atRoot.loadDir).toHaveBeenCalledTimes(1)
-    w2.unmount()
   })
 
-  it('Alt+↓：进入首个选中目录；无目录选中=无效（不多发 loadDir）', async () => {
+  it('Alt+↓：展开首个选中的目录（loadDir 激活）；无目录选中=无效（不多发 loadDir）', async () => {
     const noDir = fakeTree({ bucket: alphaBucket() })
     const w = mount(TreePanel, { props: { controller: noDir, selected: [file('root/a/b1.txt', 'b1.txt')] } })
     await list(w).trigger('keydown', { key: 'ArrowDown', altKey: true })
@@ -529,128 +473,104 @@ describe('TreePanel 键盘流（Lane H-2）', () => {
   })
 })
 
-describe('Toolbar（多选语义）', () => {
-  const fakeQueue = () => ({ enqueue: vi.fn(() => ({ accepted: [], rejected: [] })) })
+/** Toolbar 图标钮定位（2026-10 紧凑图标改版：无文本，按 data-testid；findAll[0]=缺位时 undefined，同 buttonByText 契约） */
+function toolbarButtonByTestid(w: VueWrapper, key: 'share' | 'download' | 'rename' | 'delete') {
+  return w.findAll(`[data-testid="toolbar-${key}"]`)[0]
+}
 
-  it('上传：隐藏 input change → queue.enqueue(files, 当前目录)', async () => {
-    const queue = fakeQueue()
-    const tree = fakeTree()
-    const w = mount(Toolbar, { props: { controller: tree, queue } })
-    const input = w.find('input[type="file"]')
-    expect(input.exists()).toBe(true)
-    const f = new File(['hi'], 'x.txt')
-    Object.defineProperty(input.element, 'files', { value: [f] })
-    await input.trigger('change')
-    expect(queue.enqueue).toHaveBeenCalledWith([f], 'root/')
-    w.unmount()
-  })
-
-  it('刷新：loadDir 当前目录 force', async () => {
-    const tree = fakeTree()
-    const w = mount(Toolbar, { props: { controller: tree, queue: fakeQueue() } })
-    const refresh = buttonByText(w, 'refresh')
-    expect(refresh).toBeTruthy()
-    await refresh!.trigger('click')
-    expect(tree.loadDir).toHaveBeenCalledWith('root/', { force: true })
-    w.unmount()
-  })
-
+describe('Toolbar（选中簇语义；2026-10 布局改版后挂预览区头右侧，创建簇已迁树头 TreePanel）', () => {
   it('无选中：删除/重命名/下载禁用；单文件选中：全部启用', () => {
-    const common = { controller: fakeTree(), queue: fakeQueue() }
+    const common = { controller: fakeTree() }
     const w0 = mount(Toolbar, { props: { ...common, selected: [] } })
-    expect(buttonByText(w0, 'delete')!.attributes('disabled')).toBeDefined()
-    expect(buttonByText(w0, 'rename')!.attributes('disabled')).toBeDefined()
-    expect(buttonByText(w0, 'download')!.attributes('disabled')).toBeDefined()
+    expect(toolbarButtonByTestid(w0, 'delete')!.attributes('disabled')).toBeDefined()
+    expect(toolbarButtonByTestid(w0, 'rename')!.attributes('disabled')).toBeDefined()
+    expect(toolbarButtonByTestid(w0, 'download')!.attributes('disabled')).toBeDefined()
     w0.unmount()
 
     const w1 = mount(Toolbar, { props: { ...common, selected: [file('root/a/b.txt', 'b.txt')] } })
-    expect(buttonByText(w1, 'delete')!.attributes('disabled')).toBeUndefined()
-    expect(buttonByText(w1, 'rename')!.attributes('disabled')).toBeUndefined()
-    expect(buttonByText(w1, 'download')!.attributes('disabled')).toBeUndefined()
+    expect(toolbarButtonByTestid(w1, 'delete')!.attributes('disabled')).toBeUndefined()
+    expect(toolbarButtonByTestid(w1, 'rename')!.attributes('disabled')).toBeUndefined()
+    expect(toolbarButtonByTestid(w1, 'download')!.attributes('disabled')).toBeUndefined()
     w1.unmount()
   })
 
   it('目录选中：下载禁用；多文件选中：下载启用且点击 emit download 数组（批量打包语义）', async () => {
-    const common = { controller: fakeTree(), queue: fakeQueue() }
+    const common = { controller: fakeTree() }
     const wd = mount(Toolbar, { props: { ...common, selected: [dir('root/a/', 'a')] } })
-    expect(buttonByText(wd, 'download')!.attributes('disabled')).toBeDefined()
+    expect(toolbarButtonByTestid(wd, 'download')!.attributes('disabled')).toBeDefined()
     wd.unmount()
 
     const entries = [file('root/a/b.txt', 'b.txt'), file('root/a/c.txt', 'c.txt')]
     const wm = mount(Toolbar, { props: { ...common, selected: entries } })
-    const dl = buttonByText(wm, 'download')!
+    const dl = toolbarButtonByTestid(wm, 'download')!
     expect(dl.attributes('disabled')).toBeUndefined()
     await dl.trigger('click')
     expect(wm.emitted('download')?.[0]?.[0]).toEqual(entries)
     // 多文件（含目录混合）→ 下载禁用（打包仅收文件）
     const wmix = mount(Toolbar, { props: { ...common, selected: [dir('root/a/', 'a'), ...entries] } })
-    expect(buttonByText(wmix, 'download')!.attributes('disabled')).toBeDefined()
+    expect(toolbarButtonByTestid(wmix, 'download')!.attributes('disabled')).toBeDefined()
     wmix.unmount()
     wm.unmount()
   })
 
-  // F1 门控（UI 隐藏层）：features 显式 false → 对应操作入口不渲染；未列出的键与刷新不受影响
-  it('features 显式 false → 对应按钮隐藏；缺省键与刷新不受门控', () => {
+  // F1 门控（UI 隐藏层）：features 显式 false → 对应操作入口不渲染。
+  // 2026-10 布局改版后 Toolbar 只剩选中簇（分享/下载/重命名/删除），上传/新建目录门控移树头（见 TreePanel 用例）
+  it('features 显式 false → 对应按钮隐藏（重命名/删除）；缺省键（下载）不受门控', () => {
     const w = mount(Toolbar, {
       props: {
         controller: fakeTree(),
-        queue: fakeQueue(),
-        features: { upload: false, mkdir: false, rename: false, delete: false },
+        features: { rename: false, delete: false },
       },
     })
-    expect(buttonByText(w, 'upload')).toBeUndefined()
-    expect(buttonByText(w, 'mkdir')).toBeUndefined()
-    expect(buttonByText(w, 'rename')).toBeUndefined()
-    expect(buttonByText(w, 'delete')).toBeUndefined()
-    expect(buttonByText(w, 'refresh')).toBeTruthy()
+    expect(toolbarButtonByTestid(w, 'rename')).toBeUndefined()
+    expect(toolbarButtonByTestid(w, 'delete')).toBeUndefined()
+    expect(toolbarButtonByTestid(w, 'download')).toBeTruthy()
     w.unmount()
 
     const w2 = mount(Toolbar, {
       props: {
         controller: fakeTree(),
-        queue: fakeQueue(),
         features: { delete: false },
       },
     })
-    expect(buttonByText(w2, 'delete')).toBeUndefined()
-    expect(buttonByText(w2, 'upload')).toBeTruthy()
-    expect(buttonByText(w2, 'rename')).toBeTruthy()
+    expect(toolbarButtonByTestid(w2, 'delete')).toBeUndefined()
+    expect(toolbarButtonByTestid(w2, 'rename')).toBeTruthy()
+    expect(toolbarButtonByTestid(w2, 'download')).toBeTruthy()
     w2.unmount()
   })
 
-  it('features.download=false → 下载按钮隐藏；其余按钮不受影响', () => {
+  it('features.download=false → 下载按钮隐藏；其余选中簇按钮（重命名/删除）不受影响', () => {
     const w = mount(Toolbar, {
       props: {
         controller: fakeTree(),
-        queue: fakeQueue(),
         features: { download: false },
       },
     })
-    expect(buttonByText(w, 'download')).toBeUndefined()
-    expect(buttonByText(w, 'upload')).toBeTruthy()
-    expect(buttonByText(w, 'delete')).toBeTruthy()
+    expect(toolbarButtonByTestid(w, 'download')).toBeUndefined()
+    expect(toolbarButtonByTestid(w, 'rename')).toBeTruthy()
+    expect(toolbarButtonByTestid(w, 'delete')).toBeTruthy()
     w.unmount()
   })
 
   // Lane H-2 分享生成器入口：仅单选文件启用（目录/多选不给分享——前缀分享列 P2）
   it('分享：单选文件启用且点击 emit share(entry)；目录/多选/空选中禁用', async () => {
-    const common = { controller: fakeTree(), queue: fakeQueue() }
+    const common = { controller: fakeTree() }
     const w0 = mount(Toolbar, { props: { ...common, selected: [] } })
-    expect(buttonByText(w0, 'share')!.attributes('disabled')).toBeDefined()
+    expect(toolbarButtonByTestid(w0, 'share')!.attributes('disabled')).toBeDefined()
     w0.unmount()
 
     const wd = mount(Toolbar, { props: { ...common, selected: [dir('root/a/', 'a')] } })
-    expect(buttonByText(wd, 'share')!.attributes('disabled')).toBeDefined()
+    expect(toolbarButtonByTestid(wd, 'share')!.attributes('disabled')).toBeDefined()
     wd.unmount()
 
     const wm = mount(Toolbar, {
       props: { ...common, selected: [file('root/a/b.txt', 'b.txt'), file('root/a/c.txt', 'c.txt')] },
     })
-    expect(buttonByText(wm, 'share')!.attributes('disabled')).toBeDefined()
+    expect(toolbarButtonByTestid(wm, 'share')!.attributes('disabled')).toBeDefined()
     wm.unmount()
 
     const w1 = mount(Toolbar, { props: { ...common, selected: [file('root/a/b.txt', 'b.txt')] } })
-    const share = buttonByText(w1, 'share')!
+    const share = toolbarButtonByTestid(w1, 'share')!
     expect(share.attributes('disabled')).toBeUndefined()
     await share.trigger('click')
     expect(w1.emitted('share')?.[0]?.[0]).toEqual(expect.objectContaining({ key: 'root/a/b.txt' }))

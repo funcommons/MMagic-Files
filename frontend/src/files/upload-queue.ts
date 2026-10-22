@@ -102,6 +102,7 @@ interface Task {
   /** 暂停标记：pump 不调度；分片泵停止派发新分片，在途落定后 run 以 paused 落定 */
   paused: boolean
   uploadId?: string // multipart 进行中的 uploadId（undefined = 非分片或已收尾/已被 abort 清理）
+  errMsg?: string // 最近一次失败原因（errorOf 供面板展示；重试成功不清除也无碍——status 已非 failed）
   /** 已落定分片 etag（partNumber 升序提交）；pause/失败后保留供 resume/retry 续传 */
   parts?: Map<number, string>
   /** 是否还在 pending 池（resume 时避免重复入池） */
@@ -304,6 +305,11 @@ export class UploadQueue {
     return this.tasks.get(id)?.status
   }
 
+  /** 失败原因（failed 项；取消项也有——UPLOAD_ABORTED 语义）：面板失败行展示用 */
+  errorOf(id: string): string | undefined {
+    return this.tasks.get(id)?.errMsg
+  }
+
   /** multipart 服务端残留清理（仅 abort 语义调用；业务失败保留供 retry 续传，见文件头注） */
   private cleanupMultipart(task: Task): void {
     const uploadId = task.uploadId
@@ -358,6 +364,7 @@ export class UploadQueue {
       task.status = task.aborted ? 'aborted' : 'failed'
       // 取消语义优先：底层噪音（NoSuchUpload 等）不掩盖 UPLOAD_ABORTED
       const err = task.aborted ? this.abortedError(id) : asSdkError(e)
+      task.errMsg = `(${err.code}) ${err.message}`
       if (task.aborted) this.cleanupMultipart(task) // 用户取消：服务端分片残留立即清理
       // 业务失败：uploadId/parts 保留（不 abort），retry(id) 复用续传——残留口径见文件头注
       this.hooks.onFailed?.(id, err)

@@ -199,7 +199,7 @@ describe('失败路径', () => {
 
   it('import 返回 null（防御形状）→ onError 4201，不上抛', async () => {
     const h = makeLoader({ module: null })
-    await expect(h.loader.load({ url: URL_ })).resolves.toBeUndefined()
+    await expect(h.loader.load({ url: URL_ })).resolves.toBe(true)
     expectOnError(h.onError, ERROR_CODES.PLUGIN_LOAD_FAILED)
   })
 
@@ -208,13 +208,13 @@ describe('失败路径', () => {
     h.activate.mockImplementation(() => {
       throw new Error('activate boom')
     })
-    await expect(h.loader.load({ url: URL_ })).resolves.toBeUndefined()
+    await expect(h.loader.load({ url: URL_ })).resolves.toBe(true)
     expectOnError(h.onError, ERROR_CODES.PLUGIN_LOAD_FAILED)
   })
 
   it('fetcher reject（网络异常）→ 包装成 SdkError 4201 交给 onError，保留原 message', async () => {
     const h = makeLoader({ fetcherRejects: true })
-    await expect(h.loader.load({ url: URL_ })).resolves.toBeUndefined()
+    await expect(h.loader.load({ url: URL_ })).resolves.toBe(true)
     const err = expectOnError(h.onError, ERROR_CODES.PLUGIN_LOAD_FAILED)
     expect(String(err.message)).toContain('network down')
     expect(h.importModule).not.toHaveBeenCalled()
@@ -227,7 +227,7 @@ describe('幂等去重', () => {
   it('同 url 二次 load → fetcher 仍只被调 1 次', async () => {
     const h = makeLoader()
     await h.loader.load({ url: URL_, sri: await sha384Sri(BYTES) })
-    await h.loader.load({ url: URL_, sri: await sha384Sri(BYTES) })
+    await expect(h.loader.load({ url: URL_, sri: await sha384Sri(BYTES) })).resolves.toBe(false) // 已载短路
     expect(h.fetcher).toHaveBeenCalledTimes(1)
     expect(h.importModule).toHaveBeenCalledTimes(1)
     expect(h.activate).toHaveBeenCalledTimes(1)
@@ -302,7 +302,7 @@ describe('registerApp 接线（真实 AppRegistry）', () => {
 // ───────────────────────── 8. load 恒 resolve ─────────────────────────
 
 describe('load 恒 resolve（失败不 reject）', () => {
-  it('全部失败模式均 resolve 为 undefined', async () => {
+  it('全部失败模式均不 reject（首次发起路径恒 resolve true）', async () => {
     const cases: HarnessOpts[] = [
       { ok: false, status: 404 },
       { ok: false, status: 500 },
@@ -312,7 +312,7 @@ describe('load 恒 resolve（失败不 reject）', () => {
     ]
     for (const opts of cases) {
       const h = makeLoader(opts)
-      await expect(h.loader.load({ url: URL_, sri: 'sha384-deadbeef' })).resolves.toBeUndefined()
+      await expect(h.loader.load({ url: URL_, sri: 'sha384-deadbeef' })).resolves.toBe(true)
     }
   })
 })
@@ -407,7 +407,7 @@ describe('blob URL 回收（import 结算后 revokeObjectURL）', () => {
   it('import 拒绝（失败路径）也 revoke', async () => {
     const h = makeLoader()
     h.importModule.mockImplementationOnce(() => Promise.reject(new TypeError('import failed')))
-    await expect(h.loader.load({ url: URL_ })).resolves.toBeUndefined()
+    await expect(h.loader.load({ url: URL_ })).resolves.toBe(true)
     expectOnError(h.onError, ERROR_CODES.PLUGIN_LOAD_FAILED)
     expect(revokeObjectURL).toHaveBeenCalledTimes(1)
     expect(revokeObjectURL).toHaveBeenCalledWith(h.importModule.mock.calls[0]?.[0])
@@ -438,5 +438,43 @@ describe('blob URL 回收（import 结算后 revokeObjectURL）', () => {
     const fetchFail = makeLoader({ ok: false, status: 404 })
     await fetchFail.loader.load({ url: URL_ })
     expect(revokeObjectURL).not.toHaveBeenCalled()
+  })
+})
+
+// ───────────────────────── 11. options 透传（v1.1 增补） ─────────────────────────
+
+describe('options 透传（activate 第二参）', () => {
+  it('entry 带 options → activate 以 (handle, options) 调用，第二参与 entry.options 为同一对象引用', async () => {
+    const h = makeLoader()
+    const options = { theme: 'dark', limits: { maxApps: 3 }, nested: { flag: true } }
+    await h.loader.load({ url: URL_, options })
+
+    expect(h.activate).toHaveBeenCalledTimes(1)
+    const call = h.activate.mock.calls[0] as unknown as [PluginSdkHandle, Record<string, unknown> | undefined]
+    expect(call).toHaveLength(2) // 固定两参调用：activate(handle, options)
+    expect(call[1]).toEqual(options) // deep equal
+    expect(call[1]).toBe(options) // 同一引用（非深拷贝/重建）
+    expect(h.onError).not.toHaveBeenCalled()
+  })
+
+  it('entry 不带 options → activate 第二参为 undefined', async () => {
+    const h = makeLoader()
+    await h.loader.load({ url: URL_ })
+
+    expect(h.activate).toHaveBeenCalledTimes(1)
+    const call = h.activate.mock.calls[0] as unknown as [PluginSdkHandle, Record<string, unknown> | undefined]
+    expect(call).toHaveLength(2) // 缺省也显式传 undefined 第二参（契约注释：缺省不传=undefined 第二参）
+    expect(call[1]).toBeUndefined()
+    expect(h.onError).not.toHaveBeenCalled()
+  })
+
+  it('SRI 校验失败的 entry 即使带 options 也不调用 activate（options 路径不绕过校验）', async () => {
+    const h = makeLoader()
+    await h.loader.load({ url: URL_, sri: 'sha384-deadbeef', options: { sneaky: true } })
+
+    expect(h.importModule).not.toHaveBeenCalled() // 校验失败根本不 import
+    expect(h.activate).not.toHaveBeenCalled() // 更不会带着 options 激活
+    const err = expectOnError(h.onError, ERROR_CODES.PLUGIN_LOAD_FAILED)
+    expect(String(err.message)).toContain('SRI')
   })
 })

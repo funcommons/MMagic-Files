@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <div v-if="visible" class="fc-menu-backdrop" @click="emit('close')" @contextmenu.prevent="emit('close')">
-      <div class="fc-menu" :style="{ left: pos.x + 'px', top: pos.y + 'px' }" @click.stop>
+      <div ref="menuEl" class="fc-menu" :style="{ left: adj.x + 'px', top: adj.y + 'px' }" @click.stop>
         <button
           v-for="item in items"
           :key="item.value"
@@ -19,6 +19,8 @@
 </template>
 
 <script setup lang="ts">
+import { nextTick, ref, watch } from 'vue'
+
 defineOptions({ name: 'FcContextMenu' })
 
 export interface MenuItem {
@@ -54,18 +56,39 @@ function onSelect(item: MenuItem) {
   emit('select', item.value)
   emit('close')
 }
+
+/** 视口夹紧：pos 在底部/右侧附近时菜单会溢出视口被裁（iframe 视口同理）——
+ * 渲染后量实际尺寸，把落点夹回视口内（8px 边距） */
+const menuEl = ref<HTMLElement | null>(null)
+const adj = ref({ x: props.pos.x, y: props.pos.y })
+watch(
+  [() => props.visible, () => props.pos],
+  async ([v]) => {
+    if (!v) return
+    await nextTick()
+    const w = menuEl.value?.offsetWidth ?? 160
+    const h = menuEl.value?.offsetHeight ?? 200
+    adj.value = {
+      x: Math.max(8, Math.min(props.pos.x, window.innerWidth - w - 8)),
+      y: Math.max(8, Math.min(props.pos.y, window.innerHeight - h - 8)),
+    }
+  },
+  { immediate: true, deep: true },
+)
 </script>
 
 <style scoped lang="scss">
+/* z-index 必须高于 EP 弹层基线（el-drawer/el-dialog=2000+）——否则在抽屉/弹窗内
+   右键时菜单被宿主弹层盖住（表现=右键无响应）。3000+ 常驻最顶层。 */
 .fc-menu-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 999;
+  z-index: 3000;
 }
 
 .fc-menu {
   position: fixed;
-  z-index: 1000;
+  z-index: 3001;
   min-width: 160px;
   padding: 4px;
   background: var(--app-bg-card);

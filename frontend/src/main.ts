@@ -24,6 +24,7 @@ import { bootApp, BOOT_KEY } from './boot'
 // 命令执行必然晚于 bootApp 返回与 ready 往返，届时 busRef 已赋值）。
 import { setupStores } from './files/setup'
 import { createM1Overrides } from './files/commands'
+import { memPut, notifyMemFileAdded } from './files/mem-store'
 import { pluginsEnabled, resolveFeatures, requireFeature } from './sdk/features'
 import { registerBuiltins } from './apps/builtins'
 import { RENDERERS } from './apps/renderers'
@@ -108,26 +109,86 @@ const boot = bootApp({
         appIdByUrl.set(url, def.id)
       },
     })
-    // 配置注入的非 lazy 插件：启动即载；lazy 插件经 ensureApps 在打开链未命中时触发（loader 幂等去重）
-    if (cfg.mode === 'workspace') {
+    // 配置注入的非 lazy 插件：启动即载（v1.2 起单文件模式同支持——内存文件独立区的应用命中来源）；
+    // lazy 插件经 ensureApps 在打开链未命中时触发（loader 幂等去重）
+    if (cfg.mode === 'workspace' || cfg.mode === 'file') {
       for (const p of cfg.plugins ?? []) {
         if (p.lazy === false) void pluginLoader.load(p)
       }
       return {
-        ensureApps: async (entry) => {
+        ensureApps: async (entry, opts) => {
           const loader = pluginLoader as PluginLoader
-          if (registry.resolveDefault({ name: entry.name, mime: entry.mime, size: entry.size })) return
+          // 短路条件=「默认解析已命中」：内置应用能开就无需补载配置插件。但指定插件应用 appId
+          // 的打开链（preview openOpts.appId 未命中→兜底）必须强制补载——默认命中（如 docx 命中
+          // 内置 docx-viewer）不代表目标插件应用已注册，跳过会让 appId 重试再 miss（4102 错误卡）
+          if (!opts?.force && registry.resolveDefault({ name: entry.name, mime: entry.mime, size: entry.size })) return
           await Promise.all((cfg.plugins ?? []).map((p) => loader.load(p)))
         },
       }
     }
     return undefined
   },
-  overrides: (cfg) => {
+  overrides: (cfg, session) => {
     const features = resolveFeatures(cfg.features)
     // F2：setTheme/setLocale 两模式都接管（file 模式此前无 overrides，外观命令只改内置内存态）
     const base = appearanceOverrides()
-    if (cfg.mode !== 'workspace') return base
+    // M3：registerApp 通道（宿主运行时注册=动态追加配置注入插件）——两模式共用
+    // （v1.2 单文件模式内存文件独立区「加载时再初始化」也走此口：未载插件按需 registerApp）
+    const registerApp = (payload: unknown) => {
+      requireFeature(features, 'plugins')
+      const p = (payload ?? {}) as { url?: unknown; sri?: unknown; options?: unknown }
+      const url = typeof p.url === 'string' ? p.url : null
+      if (url === null) throw new SdkError(ERROR_CODES.BAD_PARAM, 'registerApp.url 必须是字符串')
+      return (pluginLoader as PluginLoader)
+        .load({
+          url,
+          sri: typeof p.sri === 'string' ? p.sri : undefined,
+          options: p.options && typeof p.options === 'object' && !Array.isArray(p.options)
+            ? (p.options as Record<string, unknown>)
+            : undefined,
+        })
+        .then((initiated) => {
+          // 已载过的 url：loader 幂等短路不再 activate，onRegister 不触发——查表回既有 appId；
+          // 并发首载（在途 Promise 共享）时本回调晚于注册结算，appIdByUrl 必已写入（loader F2 修复）
+          const appId = appIdByUrl.get(url)
+          if (!appId) throw new SdkError(ERROR_CODES.PLUGIN_LOAD_FAILED, '插件未注册任何应用')
+          // applied（v1.1）=load 的「发起激活」判定：只有激活由本次 entry 驱动才 true——
+          // 短路/在途加入时本次 options 不适用（修并发首载双方都报 applied 的竞态）
+          return { appId, applied: initiated }
+        })
+    }
+    if (cfg.mode !== 'workspace') {
+      // 单文件模式：uploadFiles 仅开放内存通道（target='memory'，不落 S3——单文件凭证只覆盖
+      // 单对象，bucket 直传必然越权）；文件入 MemFileStore → opener hook 打开预览（mem:// 由
+      // urlDataSource 分支供数，渲染器/插件零改动）
+      return {
+        ...base,
+        registerApp,
+        uploadFiles: (payload) => {
+          const p = (payload ?? {}) as { files?: unknown; target?: unknown; appId?: unknown; appOptions?: unknown }
+          if (p.target === 'bucket') {
+            throw new SdkError(ERROR_CODES.UNSUPPORTED_MODE, '单文件模式不支持 bucket 直传（凭证仅覆盖单对象）')
+          }
+          const files = p.files
+          if (files !== undefined && files !== null && !Array.isArray(files)) {
+            throw new SdkError(ERROR_CODES.BAD_PARAM, 'uploadFiles.files 必须是 File 数组')
+          }
+          // appId/appOptions 透传 opener（内存文件独立区：指定应用+打开参数）
+          const hint = {
+            appId: typeof p.appId === 'string' && p.appId !== '' ? p.appId : undefined,
+            appOptions: p.appOptions && typeof p.appOptions === 'object' && !Array.isArray(p.appOptions)
+              ? (p.appOptions as Record<string, unknown>)
+              : undefined,
+          }
+          const accepted = (files as File[] | undefined ?? []).map((f) => {
+            const e = memPut(f)
+            notifyMemFileAdded(e, hint)
+            return { key: e.key, name: e.name, size: e.size }
+          })
+          return { accepted, rejected: [], memory: true }
+        },
+      }
+    }
     const stores = setupStores(cfg, (evt, payload) => busRef?.emit(evt, payload))
     const m1 = createM1Overrides({
       tree: stores.tree,
@@ -137,24 +198,28 @@ const boot = bootApp({
       features,
       emit: (evt, payload) => busRef?.emit(evt, payload),
     })
-    // M3：registerApp 通道（宿主运行时注册=动态追加配置注入插件）
-    m1.registerApp = (payload) => {
-      requireFeature(features, 'plugins')
-      const p = (payload ?? {}) as { url?: unknown; sri?: unknown }
-      const url = typeof p.url === 'string' ? p.url : null
-      if (url === null) throw new SdkError(ERROR_CODES.BAD_PARAM, 'registerApp.url 必须是字符串')
-      return (pluginLoader as PluginLoader)
-        .load({ url, sri: typeof p.sri === 'string' ? p.sri : undefined })
-        .then(() => {
-          // 已载过的 url：loader 幂等短路不再 activate，onRegister 不触发——查表回既有 appId；
-          // 并发首载（在途 Promise 共享）时本回调晚于注册结算，appIdByUrl 必已写入（loader F2 修复）
-          const appId = appIdByUrl.get(url)
-          if (!appId) throw new SdkError(ERROR_CODES.PLUGIN_LOAD_FAILED, '插件未注册任何应用')
-          return { appId }
-        })
-    }
+    // M3：registerApp 通道（宿主运行时注册=动态追加配置注入插件）——实现见回调顶部共用 registerApp
+    m1.registerApp = registerApp
     // M1 表在前、外观命令在后：无键重叠（M1 不含 setTheme/setLocale），后者仅为防未来重叠时被静默吞掉
-    return { ...m1, ...base }
+    // setCredentials（v1.1）：宿主重签通道——热替换 client 凭证 +（可选）重置自毁线
+    const setCredentials = (payload: unknown): Record<string, never> => {
+      const p = (payload ?? {}) as Partial<import('./sdk/types').SetCredentialsPayload>
+      const c = (p.credentials ?? {}) as Partial<import('./sdk/types').S3Credentials>
+      const accessKeyId = typeof c.accessKeyId === 'string' ? c.accessKeyId : null
+      const accessKeySecret = typeof c.accessKeySecret === 'string' ? c.accessKeySecret : null
+      if (accessKeyId === null || accessKeySecret === null || accessKeyId === '' || accessKeySecret === '') {
+        throw new SdkError(ERROR_CODES.BAD_PARAM, 'setCredentials.credentials.accessKeyId/accessKeySecret 必须是非空字符串')
+      }
+      const sessionToken = typeof c.sessionToken === 'string' ? c.sessionToken : ''
+      const ttlSeconds = typeof p.ttlSeconds === 'number' && Number.isFinite(p.ttlSeconds) && p.ttlSeconds > 0 ? p.ttlSeconds : undefined
+      const expiresAt = typeof p.expiresAt === 'number' && Number.isFinite(p.expiresAt) ? p.expiresAt : undefined
+      stores.client.setCredentials({ accessKeyId, accessKeySecret, sessionToken })
+      if (ttlSeconds !== undefined || expiresAt !== undefined) {
+        session?.extend?.({ ttlSeconds, expiresAt }) // 双缺省=保持现死线；session 句柄缺 extend=不重置
+      }
+      return {}
+    }
+    return { ...m1, setCredentials, ...base }
   },
 })
 if (boot.ok) {

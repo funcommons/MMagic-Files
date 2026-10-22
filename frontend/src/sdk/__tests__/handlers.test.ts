@@ -1,6 +1,6 @@
 /**
  * createCommandHandlers 单测（契约《JSSDK 接口文档.md》§四/§五/§七）
- * 覆盖：15 键命令表形状 / 单文件模式 4305 / 工作台桩 4301 / 终态 5000 / getInfo / destroy / setTheme / setLocale
+ * 覆盖：16 键命令表形状（含 v1.1 setCredentials）/ 单文件模式 4305 / 工作台桩 4301 / 终态 5000 / getInfo / destroy / setTheme / setLocale
  */
 import { describe, expect, it, vi } from 'vitest'
 import { SdkError } from '../errorCodes'
@@ -67,32 +67,50 @@ function makeDeps(
 }
 
 describe('createCommandHandlers', () => {
-  it('表形状：恰含 15 个命令键；未知名不在表内（由调用方兜 4005）', () => {
+  it('表形状：恰含 17 个命令键（含 v1.1 setCredentials、v1.2 getApps）；未知名不在表内（由调用方兜 4005）', () => {
     const handlers = createCommandHandlers(makeDeps({ mode: 'workspace' }).deps)
     const names = Object.keys(handlers)
-    expect(names).toHaveLength(15)
+    expect(names).toHaveLength(17)
     expect(new Set(names)).toEqual(
       new Set([
         'navigate', 'openFile', 'closeTab', 'getTabs', 'select', 'createFolder',
         'uploadFiles', 'download', 'rename', 'remove', 'registerApp',
-        'setTheme', 'setLocale', 'getInfo', 'destroy',
+        'setTheme', 'setLocale', 'getInfo', 'destroy', 'setCredentials', 'getApps',
       ]),
     )
     expect(handlers['formatDisk' as CommandName]).toBeUndefined()
   })
 
-  it('单文件模式：工作台命令一律 4305 UNSUPPORTED_MODE', () => {
+  it('单文件模式：工作台命令一律 4305 UNSUPPORTED_MODE（uploadFiles 例外=内存通道放行，bucket 由 overrides 拒 4305）', () => {
     const handlers = createCommandHandlers(makeDeps({ mode: 'file' }).deps)
     const gated: CommandName[] = [
       'navigate', 'openFile', 'closeTab', 'getTabs', 'select', 'createFolder',
-      'uploadFiles', 'download', 'rename', 'remove', 'registerApp',
+      'download', 'rename', 'remove',
     ]
     for (const name of gated) {
       expect(codeOf(() => handlers[name](undefined))).toBe(4305)
     }
   })
 
-  it('单文件模式：子集四命令放行（setTheme/setLocale/getInfo/destroy）', () => {
+  it('单文件模式：uploadFiles 放行（FILE_MODE_ALLOWED），实现由装配层 overrides 提供（memory 通路）', () => {
+    const memPut = vi.fn((f: File) => ({ key: 'mem://1', name: (f as File).name, size: (f as File).size, mime: 'image/png', blob: f }))
+    const notify = vi.fn()
+    const { deps } = makeDeps({ mode: 'file' })
+    deps.overrides = {
+      uploadFiles: (payload) => {
+        const files = (payload as { files: File[] }).files
+        const accepted = files.map((f) => { const e = memPut(f); notify(e); return { key: e.key, name: e.name, size: e.size } })
+        return { accepted, rejected: [], memory: true }
+      },
+    }
+    const handlers = createCommandHandlers(deps)
+    const reply = handlers.uploadFiles({ files: [new File(['x'], 'm.png', { type: 'image/png' })], target: 'memory' }) as { memory: boolean }
+    expect(reply.memory).toBe(true)
+    expect(memPut).toHaveBeenCalledTimes(1)
+    expect(notify).toHaveBeenCalledTimes(1)
+  })
+
+  it('单文件模式：子集放行（setTheme/setLocale/getInfo/destroy + uploadFiles/getApps/registerApp 内存文件通道）', () => {
     const { deps } = makeDeps({ mode: 'file' })
     const handlers = createCommandHandlers(deps)
     expect(handlers.setTheme({ theme: 'dark' })).toEqual({})
@@ -169,5 +187,36 @@ describe('createCommandHandlers', () => {
     const expiredDeps = makeDeps({ mode: 'workspace', expired: true }).deps
     const expiredHandlers = createCommandHandlers({ ...expiredDeps, overrides: { navigate } })
     expect(codeOf(() => expiredHandlers.navigate({ path: '/' }))).toBe(5000)
+  })
+})
+
+describe('setCredentials（v1.1：M1_STUB_NAMES 成员，实现在装配层 overrides）', () => {
+  const payload = { credentials: { accessKeyId: 'ak2', accessKeySecret: 'sk2', sessionToken: 'tk2' } }
+
+  it('工作台模式无 override：桩兜 4301 FEATURE_DISABLED（M1/装配层接管前）', () => {
+    const handlers = createCommandHandlers(makeDeps({ mode: 'workspace' }).deps)
+    expect(codeOf(() => handlers.setCredentials(payload))).toBe(4301)
+  })
+
+  it('单文件模式：不在 FILE_MODE_ALLOWED（仅 setTheme/setLocale/getInfo/destroy）→ 4305 UNSUPPORTED_MODE', () => {
+    const handlers = createCommandHandlers(makeDeps({ mode: 'file' }).deps)
+    expect(codeOf(() => handlers.setCredentials(payload))).toBe(4305)
+  })
+
+  it('会话已终态：任何模式 → 5000 SESSION_EXPIRED（终态门先于模式门/桩）', () => {
+    const wsHandlers = createCommandHandlers(makeDeps({ mode: 'workspace', expired: true }).deps)
+    expect(codeOf(() => wsHandlers.setCredentials(payload))).toBe(5000)
+    const fileHandlers = createCommandHandlers(makeDeps({ mode: 'file', expired: true }).deps)
+    expect(codeOf(() => fileHandlers.setCredentials(payload))).toBe(5000)
+  })
+
+  it('override 接管：门控后原样透传 payload（handlers 层不校验凭证形状，校验在 override）', () => {
+    const { deps } = makeDeps({ mode: 'workspace' })
+    const setCredentials = vi.fn(() => ({ expiresInSec: 300 }))
+    const handlers = createCommandHandlers({ ...deps, overrides: { setCredentials } })
+    const garbage = { credentials: null } // 非法形状不 4005：拒绝职责在 override
+    expect(handlers.setCredentials(garbage)).toEqual({ expiresInSec: 300 })
+    expect(setCredentials).toHaveBeenCalledTimes(1)
+    expect(setCredentials).toHaveBeenCalledWith(garbage)
   })
 })

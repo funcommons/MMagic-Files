@@ -16,6 +16,8 @@ export interface PluginEntryInput {
   url: string
   /** 'sha384-<hex>'；缺省=不校验（不推荐，契约红线 2） */
   sri?: string
+  /** 透传给 activate(sdk, options) 的插件参数（v1.1 增补；缺省不传=undefined 第二参） */
+  options?: Record<string, unknown>
 }
 
 /** 注入给插件 activate(sdk) 的句柄（契约 §二：完整 API 面就这么大） */
@@ -64,18 +66,26 @@ export class PluginLoader {
     return this.loaded.has(url)
   }
 
-  /** 加载并激活插件：fetch → SRI 自校验 → import → activate(sdk)。幂等（同 url 只载一次，并发共享同一在途 Promise） */
-  async load(entry: PluginEntryInput): Promise<void> {
+  /**
+   * 加载并激活插件：fetch → SRI 自校验 → import → activate(sdk, options)。幂等（同 url 只载一次，并发共享同一在途 Promise）。
+   * @returns 本次调用是否处于「发起激活」路径——true=激活由本调用的 entry（含 options）驱动；
+   *          false=同 url 已载/在途加入（本次 entry 的 options 不适用，registerApp 据此回 applied:false）
+   */
+  async load(entry: PluginEntryInput): Promise<boolean> {
     const { url } = entry
     // 在途检查先于已载检查：load 起步即记入 loaded（has() 语义不变），仅靠 loaded 短路会放过在途竞态
     const pending = this.inflight.get(url)
-    if (pending) return pending
-    if (this.loaded.has(url)) return
+    if (pending) {
+      await pending
+      return false
+    }
+    if (this.loaded.has(url)) return false
     const task = this.doLoad(entry).finally(() => {
       this.inflight.delete(url)
     })
     this.inflight.set(url, task)
-    return task
+    await task
+    return true
   }
 
   private async doLoad(entry: PluginEntryInput): Promise<void> {
@@ -115,7 +125,7 @@ export class PluginLoader {
           return { ok: r.ok, reason: r.reason }
         },
       }
-      ;(mod.activate as (sdk: PluginSdkHandle) => void)(handle)
+      ;(mod.activate as (sdk: PluginSdkHandle, options?: Record<string, unknown>) => void)(handle, entry.options)
     } catch (err) {
       const e = err instanceof SdkError ? err : new SdkError(ERROR_CODES.PLUGIN_LOAD_FAILED, `插件加载失败：${(err as Error)?.message ?? String(err)}`, err)
       this.deps.onError?.(e)

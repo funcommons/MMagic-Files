@@ -54,7 +54,10 @@ export interface PreviewOptions {
   /** 下载处理器（fallback/错误节点下载钮用；缺省=提示文案 only） */
   onDownload?: (entry: S3ObjectSummary) => void
   /** lazy 插件触发（registry 未命中时先加载配置插件再重解析一次；契约：lazy 默认开、首匹配才 import） */
-  ensureApps?: (entry: { name: string; mime?: string; size?: number }) => Promise<void>
+  ensureApps?: (
+    entry: { name: string; mime?: string; size?: number },
+    opts?: { force?: boolean }, // force=跳过「默认应用已命中」短路（指定插件 appId 未命中时强制补载）
+  ) => Promise<void>
   /** 下载总闸（缺省 true）：false 时 fallback 与错误节点均不出下载钮 */
   canDownload?: boolean
   /**
@@ -76,6 +79,8 @@ export interface PreviewOptions {
 export interface PreviewOpenOptions {
   /** 指定应用（「打开方式」）：registry.require 按 id 取（既有 not-found 语义），未命中→错误节点，不抛裸异常 */
   appId?: string
+  /** 打开参数（第 5 参透传渲染器；消费方自决——如 markdown-editor 的 { initialMode }，其它渲染器忽略） */
+  appOptions?: Record<string, unknown>
 }
 
 export interface PreviewHandle {
@@ -253,6 +258,7 @@ export function createPreview(opts: PreviewOptions): PreviewHandle {
     file: { key: string; name: string; size: number },
     ctx: Parameters<AppDefinition['renderer']>[2],
     savedState: unknown,
+    appOptions?: Record<string, unknown>,
   ): Promise<RenderOutcome> {
     return new Promise((resolve) => {
       let settled = false
@@ -276,7 +282,7 @@ export function createPreview(opts: PreviewOptions): PreviewHandle {
       }
       let running: Promise<void | AppInstance>
       try {
-        running = Promise.resolve(def.renderer(el, file, ctx, savedState))
+        running = Promise.resolve(def.renderer(el, file, ctx, savedState, appOptions))
       } catch (err) {
         finish({ status: 'failed', error: err })
         return
@@ -307,11 +313,29 @@ export function createPreview(opts: PreviewOptions): PreviewHandle {
     let def: AppDefinition | null = null
     let defError: unknown = null
     if (openOpts.appId !== undefined) {
-      // 指定应用：registry.require 既有 not-found 语义（4102）——未命中降级错误节点，不抛裸异常
+      // 指定应用：registry.require 既有 not-found 语义（4102）——未命中降级错误节点，不抛裸异常。
+      // 插件注册竞态兜底：启动即载插件是 void load()（不阻塞 ready），uploadFiles+appId 可在
+      // activate 完成前到达 → require 未命中；走 ensureApps 补载后再 require 一次（与下方默认
+      // 解析分支的 ensureApps 兜底对称）。仍失败才落 defError。
       try {
         def = registry.require(openOpts.appId)
       } catch (err) {
         defError = err
+        if (ensureApps) {
+          try {
+            // force：默认解析命中内置应用不代表目标插件已注册，须强制补载配置插件再重试
+            await ensureApps(fileRef, { force: true })
+          } catch {
+            // 加载失败保持 defError
+          }
+          if (my !== seq) return
+          try {
+            def = registry.require(openOpts.appId)
+            defError = null
+          } catch {
+            // 仍未命中：保持 defError（错误节点在 gate+takeOver 之后出，时机不变）
+          }
+        }
       }
     } else {
       def = registry.resolveDefault(fileRef)
@@ -392,6 +416,7 @@ export function createPreview(opts: PreviewOptions): PreviewHandle {
       { key: entry.key, name: entry.name, size: entry.size },
       ctx,
       savedStates.get(entry.key),
+      openOpts.appOptions,
     )
     if (my !== seq) {
       // 渲染期间被接管：丢弃结果（实例类则销毁），容器归新链所有

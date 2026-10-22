@@ -12,6 +12,7 @@
 import { ERROR_CODES, SdkError } from '@/sdk/errorCodes'
 import { requireFeature } from '@/sdk/features'
 import { triggerDownload } from '@/utils/download'
+import { memPut, notifyMemFileAdded } from './mem-store'
 import type { CommandHandler } from '@/sdk/handlers'
 import type { CommandName, EventName, S3Client, UploadFilesReply, UploadRejected } from '@/sdk/types'
 import type { FileTreeController } from './tree-store'
@@ -127,7 +128,37 @@ export function createM1Overrides(deps: M1OverridesDeps): Partial<Record<Command
 
     uploadFiles: (payload) => {
       requireFeature(features, 'upload')
-      const files = (payload as { files?: unknown } | undefined)?.files
+      const p = (payload ?? {}) as { files?: unknown; target?: unknown; appId?: unknown; appOptions?: unknown }
+      // target='memory'（内存中处理）：文件入 MemFileStore（不落 S3，凭证零改动）→ 回 accepted
+      // entries（mem:// 键）→ 经 opener hook 触发 UI 打开预览（mem:// 由 DataSource 分支供数，
+      // 渲染器/插件零改动）。files 缺省同样拉起选择器（picked 全量入内存）。
+      if (p.target === 'memory') {
+        // appId/appOptions 透传 opener（内存文件独立区：指定应用+打开参数）；非法类型=4005
+        const openHint = {
+          appId: typeof p.appId === 'string' && p.appId !== '' ? p.appId : undefined,
+          appOptions: p.appOptions && typeof p.appOptions === 'object' && !Array.isArray(p.appOptions)
+            ? (p.appOptions as Record<string, unknown>)
+            : undefined,
+        }
+        const runMemory = (list: File[]) => {
+          const accepted = list.map((f) => {
+            const entry = memPut(f)
+            notifyMemFileAdded(entry, openHint)
+            return { key: entry.key, name: entry.name, size: entry.size }
+          })
+          return { accepted, rejected: [], memory: true }
+        }
+        if (p.files === undefined || p.files === null) {
+          openFilePicker((picked) => {
+            if (!picked || picked.length === 0) return
+            runMemory(Array.from(picked))
+          })
+          return { accepted: [], rejected: [], memory: true }
+        }
+        if (!Array.isArray(p.files)) throw new SdkError(ERROR_CODES.BAD_PARAM, 'uploadFiles.files 必须是 File 数组')
+        return runMemory(p.files as File[])
+      }
+      const files = p.files
       // 契约 §五「缺省=拉起文件选择器」：无 files 字段（undefined/null）→ 动态建 <input type=file>
       // 并 click()。注意：postMessage 命令上下文没有用户手势（user activation），部分浏览器可能
       // 静默拒绝弹窗——平台限制，此处尽力兑现（best-effort）。

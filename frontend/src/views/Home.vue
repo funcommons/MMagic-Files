@@ -2,8 +2,9 @@
 /**
  * Home.vue — 工作台根页（Wave2-T2；Lane F3 消费层接线；Lane F5 交互面改版；Lane H1 预览 Tab 条；
  * Lane H-2 分享生成器接线：Toolbar/右键菜单两入口 → 单实例 ShareDialog）。
- * !ok → 配置错误卡（保留 M0）；ok+workspace → SessionBanner+Toolbar+TreePanel+UploadPanel
- * （左树右预览，预览卡顶部 tab 条）；ok+file → 单文件预览（urlDataSource+registry 按 name 解析默认
+ * !ok → 配置错误卡（保留 M0）；ok+workspace → SessionBanner+TreePanel+UploadPanel
+ * （左树可拖宽/可隐藏，预览卡头=PreviewTabs|Toolbar 同一行——Toolbar 挂预览区头右侧（2026-10），
+ * 旧顶部工具条已解散）；ok+file → 单文件预览（urlDataSource+registry 按 name 解析默认
  * 应用，F2；不挂 tab 条）；boot 未注入 → M0 hero 兜底。
  * Lane F3：① notifyFileChanged 真接线（renderer 保存 → tree.applyChange + bus 'fileChanged'，
  * 审计 P0）；② features.download 门控；③ bus 'expired' → preview.expire()；④ ui.defaultOpen 挂载后直开。
@@ -25,13 +26,14 @@
 import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { inject } from 'vue'
-import { ElMessageBox } from 'element-plus'
-import { FcButton, FcSectionCard, FcTag, toast } from '@/components/sdk'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { FcButton, FcDrawer, FcPopover, FcSectionCard, FcSegmented, toast } from '@/components/sdk'
 import { usePreferenceStore } from '@/store/preference'
 import { BOOT_KEY } from '@/boot'
 import { SdkError } from '@/sdk/errorCodes'
 import { setupWorkspace } from '@/files/setup'
 import { createPreview } from '@/files/preview'
+import { isMemKey, memDelete, setMemFileOpener } from '@/files/mem-store'
 import { formatBytes } from '@/files/format' // R2-05：大小口径统一正本（数值+空格+单位）
 import { normalizePrefix } from '@/files/tree-store'
 import { s3DataSource, urlDataSource } from '@/apps/datasource'
@@ -46,7 +48,6 @@ import { formatRemaining } from '@/files/session-format'
 import { EXPIRE_WARN_BEFORE_MS } from '@/sdk/constants'
 import SearchDialog from '@/files/ui/SearchDialog.vue'
 import ShareDialog from '@/files/ui/ShareDialog.vue'
-import StatusBar from '@/files/ui/StatusBar.vue'
 import ConnectWizard from '@/files/ui/ConnectWizard.vue'
 import { SearchIndex, createIdbMetaStore } from '@/files/search-index'
 import type { MetaRow } from '@/files/search-index'
@@ -55,11 +56,11 @@ import Toolbar from '@/files/ui/Toolbar.vue'
 import TreePanel from '@/files/ui/TreePanel.vue'
 import UploadPanel from '@/files/ui/UploadPanel.vue'
 import type { UploadTaskView } from '@/files/ui/UploadPanel.vue'
-import PreviewTabs, { findTab, pickNeighbor, pinToggle, upsertTab } from '@/files/ui/PreviewTabs.vue'
+import PreviewTabs, { applyOpenedTab, findTab, pickNeighbor, pinToggle } from '@/files/ui/PreviewTabs.vue'
 import type { PreviewTab } from '@/files/ui/PreviewTabs.vue'
 import type { PreviewHandle } from '@/files/preview'
 import { UPLOAD_ABORTED_CODE } from '@/files/upload-queue'
-import type { ConflictEnqueueResult, EnqueueResult } from '@/files/upload-queue'
+import type { ConflictEnqueueResult } from '@/files/upload-queue'
 import type { S3ObjectSummary } from '@/sdk/types'
 
 const { t } = useI18n()
@@ -96,6 +97,9 @@ function basenameOf(url: string): string {
   }
 }
 const fileName = fileConfig ? (fileConfig.name ?? basenameOf(fileConfig.source.url)) : ''
+/** 单文件模式：无壳（无 header/卡片包裹）——文件名与编辑态由应用自渲染（Univer/md 工具栏等）。
+ *  无源装载（source.url=''，v1.2 容器模式）：boot 不自动打开，舞台留白等 uploadFiles */
+const fileSourceUrl = fileConfig ? fileConfig.source.url.trim() : ''
 
 // R2-05：大文件确认框 {size} 改用全仓统一 formatBytes 口径（「数值+空格+单位」，与树列/拒绝文案同源）
 // （原本地 formatMb 的「25.1MB」无空格口径已废；largefile.rejected 的 {limit} 由 preview.ts 传，X2 lane 负责）
@@ -106,14 +110,29 @@ const features = computed<Record<string, boolean>>(() =>
 )
 const registry = computed(() => (boot && boot.ok ? boot.handle.registry : null))
 
+/** 树形态（config.ui.treeMode，workspace 模式专属）：sidebar=常驻侧栏（默认）/ drawer=左抽屉 */
+const treeMode = computed<'sidebar' | 'drawer'>(() => {
+  if (!(boot && boot.ok) || boot.handle.config.mode !== 'workspace') return 'sidebar'
+  return boot.handle.config.ui?.treeMode ?? 'sidebar'
+})
+const isDrawerTree = computed(() => treeMode.value === 'drawer')
+/** 左抽屉开关（drawer 模式；预览区左上角文件图标唤起） */
+const treeDrawerOpen = ref(false)
+/** 树标题覆写（ui.treeTitle；缺省走 TreePanel 内 rootPrefix 口径） */
+const treeTitle = computed(() =>
+  boot && boot.ok && boot.handle.config.mode === 'workspace' ? boot.handle.config.ui?.treeTitle : undefined,
+)
+
 /** 选中集（Lane F5 多选数组）：单击=替换、ctrl/cmd=切换、shift=范围（切换逻辑在 TreePanel 内聚） */
 const selected = ref<S3ObjectSummary[]>([])
 function onSelect(entries: S3ObjectSummary[]): void {
   selected.value = entries
 }
-/** changed(key)（删除/重命名的旧 key）：从选中集剔除；tab 历史同步剔除（残留只会 404） */
+/** changed(key)（删除/重命名的旧 key）：从选中集剔除；tab 历史同步剔除（残留只会 404）；
+ *  mem:// 键随 tab 移除释放内存条目（内存文件生命周期绑 tab，防泄漏） */
 function onChanged(key: string): void {
   selected.value = selected.value.filter((s) => s.key !== key)
+  if (isMemKey(key)) memDelete(key)
   const before = previewTabs.value.length
   previewTabs.value = previewTabs.value.filter((t) => t.entry.key !== key)
   if (previewTabs.value.length !== before && activeTabKey.value === key) {
@@ -146,6 +165,7 @@ function pollUploadStatuses(): void {
       task.status = 'paused'
     } else if (s === 'failed') {
       task.status = 'failed'
+      task.error = ws?.stores.queue.errorOf(task.id) // 失败原因（面板行展示，不再只给「失败」两字）
     } else if (s === 'aborted') {
       task.status = 'cancelled'
     }
@@ -205,12 +225,13 @@ async function confirmConflict(names: string[]): Promise<'overwrite' | 'skip'> {
 }
 
 /**
- * 带任务登记的 enqueue 包装（Toolbar 上传/树拖拽/粘贴共用上传口；Lane G1 起为异步链：
+ * 带任务登记的 enqueue 包装（树头上传（hidden input→@drop-files）/树拖拽/粘贴共用上传口；
+ * Lane G1 起为异步链：
  * 显式 onConflict → 队列 head 探测重名 → 冲突对话框裁决后落池）。
  * UploadQueue 不枚举任务且 hooks 构造期只读——id↔name 映射只能在入队点登记：
  * accepted 按文件序排列，逐个剔除 rejected 命中后对齐取 id。
- * 拒收 toast 收口说明：Toolbar 内部 ingestFiles 依赖同步回包（异步链下恒为空批）不再触发，
- * ext/size 拒收统一在此 resolve 后汇总提示（conflict 跳过经对话框自明，不计入 toast）。
+ * 拒收 toast 收口说明：ext/size 拒收统一在此 resolve 后汇总提示（conflict 跳过经对话框自明，
+ * 不计入 toast）；旧 Toolbar 内部 ingestFiles 同步回包链随 props.queue 删除一并退场（2026-10）。
  */
 async function trackedEnqueue(files: File[], prefix?: string): Promise<ConflictEnqueueResult> {
   const queue = ws?.stores.queue
@@ -242,17 +263,6 @@ async function trackedEnqueue(files: File[], prefix?: string): Promise<ConflictE
   }
   if (result.accepted.length > 0) ensureUploadPoller()
   return result
-}
-
-/**
- * Toolbar 注入口（Toolbar props.queue 为同步签名 (files, prefix?) => EnqueueResult）：
- * 登记/冲突裁决在异步链进行，同步仅回空批（Toolbar 不消费回包内容）。
- */
-const toolbarQueue = {
-  enqueue: (files: File[], prefix?: string): EnqueueResult => {
-    void trackedEnqueue(files, prefix)
-    return { accepted: [], rejected: [] }
-  },
 }
 
 /** 下载队列（Lane G1 传输任务中心下载侧）：reactive 任务列表直供面板；file 模式无下载 */
@@ -355,7 +365,7 @@ function onPreviewOpened(entry: S3ObjectSummary): void {
     if (i >= 0) previewTabs.value.splice(i, 1)
     pendingCloseKey = null
   }
-  upsertTab(previewTabs.value, entry, activeTabKey.value, pendingOpenAppId)
+  applyOpenedTab(previewTabs.value, entry, activeTabKey.value, pendingOpenAppId, features.value.multiTab !== false)
   activeTabKey.value = entry.key
 }
 
@@ -374,15 +384,44 @@ function onOpenWith(payload: { entry: S3ObjectSummary; appId: string }): void {
   openEntry(payload.entry, payload.appId)
 }
 
+/** 抽屉模式专属：打开/打开方式后收起抽屉（用户订单：打开文件即关抽屉，内容区全宽展示） */
+function onDrawerOpen(entry: S3ObjectSummary): void {
+  onOpen(entry)
+  treeDrawerOpen.value = false
+}
+
+function onDrawerOpenWith(payload: { entry: S3ObjectSummary; appId: string }): void {
+  onOpenWith(payload)
+  treeDrawerOpen.value = false
+}
+
 /** 单击 tab=切回：preview.open（savedState 回注），复用该 tab 最近一次的应用（无则默认应用）；已激活=无操作 */
 function onTabActivate(entry: S3ObjectSummary): void {
   if (!preview || entry.key === activeTabKey.value) return
   openEntry(entry, findTab(previewTabs.value, entry.key)?.appId)
 }
 
-/** 双击 tab=钉住/取消钉（纯 tab 状态，不触预览链） */
+/** 当前预览应用信息（用户口径：工具栏徽标显示应用名，多应用可切换）——激活 tab 的命中应用集 + 当前项 */
+const previewAppInfo = computed(() => {
+  const reg = registry.value
+  const tab = activeTabKey.value ? findTab(previewTabs.value, activeTabKey.value) : null
+  if (!reg || !tab || tab.entry.isDir) return null
+  const matches = reg.listMatches(tab.entry)
+  if (matches.length === 0) return null
+  const currentId = tab.appId ?? reg.resolveDefault(tab.entry)?.id ?? matches[0]!.id
+  return { currentId, options: matches.map((d) => ({ id: d.id, label: t(d.label ?? d.id) })) }
+})
+
+/** 徽标切应用：openEntry 复用「打开方式」链（preview.open({appId}) + tab.appId 记忆） */
+function onSwitchPreviewApp(appId: string): void {
+  const tab = activeTabKey.value ? findTab(previewTabs.value, activeTabKey.value) : null
+  if (!tab) return
+  openEntry(tab.entry, appId)
+}
+
+/** 双击 tab=钉住/取消钉（纯 tab 状态，不触预览链）；钉满 PIN 上限被拒 → 轻提示 */
 function onTabPinToggle(key: string): void {
-  pinToggle(previewTabs.value, key)
+  if (!pinToggle(previewTabs.value, key)) ElMessage.warning(t('files.tabs.pin-limit'))
 }
 
 /** 关闭钮=关该 tab。非激活直接移除；激活中→清预览（走 gate，被暂缓则保留 tab=零半更新）并激活相邻 tab
@@ -410,24 +449,29 @@ async function onTabClose(entry: S3ObjectSummary): Promise<void> {
   openEntry(neighbor.entry, neighbor.appId)
 }
 
-/** 右键菜单动作 → workspace-ops 收口（与 Toolbar 同链）；结果维护选中集 */
+/** 右键菜单动作 → workspace-ops 收口（与 Toolbar 同链）；结果维护选中集。
+ *  2026-10：TreePanel menu-action 的 entry 变可选（mkdir 无 entry）；其余动作缺失 entry 静默忽略。 */
 async function onMenuAction(payload: {
   action: 'rename' | 'delete' | 'download' | 'share' | 'mkdir'
-  entry: S3ObjectSummary
+  entry?: S3ObjectSummary
 }): Promise<void> {
   if (!ops) return
+  if (payload.action === 'mkdir') {
+    await ops.createDir()
+    return
+  }
+  const { entry } = payload
+  if (!entry) return
   if (payload.action === 'rename') {
-    const r = await ops.renameEntry(payload.entry)
+    const r = await ops.renameEntry(entry)
     if (r) onChanged(r.from)
   } else if (payload.action === 'delete') {
-    const keys = await ops.removeEntries([payload.entry])
+    const keys = await ops.removeEntries([entry])
     if (keys) for (const k of keys) onChanged(k)
   } else if (payload.action === 'download') {
-    void downloadEntries([payload.entry])
+    void downloadEntries([entry])
   } else if (payload.action === 'share') {
-    openShare(payload.entry)
-  } else {
-    await ops.createDir()
+    openShare(entry)
   }
 }
 
@@ -478,7 +522,30 @@ function zipFileName(): string {
   return `files-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.zip`
 }
 
+/** 浏览器内全屏预览卡：.is-page-fs 用 position:fixed 铺满视口（非系统 Fullscreen API）；Esc/再点退出。
+ *  嵌入态同步发 previewFullscreen 事件给宿主（顶级文档），由宿主决定如何铺满（如舞台最大化） */
+const previewFullscreen = ref(false)
+const emitFsState = (): void => {
+  const bootHandle = boot && boot.ok ? boot.handle : null
+  try {
+    bootHandle?.bus.emit('previewFullscreen', { on: previewFullscreen.value })
+  } catch {
+    // 事件通道不可用（直连态等）不影响本页全屏
+  }
+}
+const togglePreviewFullscreen = (): void => {
+  previewFullscreen.value = !previewFullscreen.value
+  emitFsState()
+}
+const onFsKeydown = (ev: KeyboardEvent): void => {
+  if (ev.key === 'Escape' && previewFullscreen.value) {
+    previewFullscreen.value = false
+    emitFsState()
+  }
+}
+
 onMounted(() => {
+  window.addEventListener('keydown', onFsKeydown)
   // Lane G1：粘贴上传（workspace 且 features.upload 开启时生效；onPaste 内部二次门控）
   if (ws) window.addEventListener('paste', onPaste)
   if (!previewEl.value) return
@@ -553,7 +620,8 @@ onMounted(() => {
       ensureApps: bootHandle.ensureApps,
       canDownload: features.value.download !== false,
     })
-    void preview.open({ key: fileName, name: fileName, size: 0, isDir: false })
+    // 无源装载（url=''）不自动打开——boot 后舞台留白等 uploadFiles（防内存文件加载时源文件闪现）
+    if (fileSourceUrl) void preview.open({ key: fileName, name: fileName, size: 0, isDir: false })
   }
 })
 onBeforeUnmount(() => {
@@ -562,6 +630,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('paste', onPaste) // Lane G1：粘贴上传解绑
   stopUploadPoller()
   if (tickTimer !== null) clearInterval(tickTimer)
+  window.removeEventListener('keydown', onFsKeydown)
   preview?.clear()
 })
 
@@ -582,6 +651,18 @@ onMounted(() => {
   }, 1000)
 })
 
+// 内存文件 opener（uploadFiles target='memory' → mem-store 落库后回调打开预览；mem:// 由
+// DataSource 分支供数，preview.open 对来源无感）。闭包引用 let preview——回调执行晚于挂载。
+onMounted(() => {
+  setMemFileOpener((entry, hint) => {
+    void preview?.open(
+      { key: entry.key, name: entry.name, size: entry.size, isDir: false },
+      { appId: hint?.appId, appOptions: hint?.appOptions },
+    )
+  })
+})
+onBeforeUnmount(() => setMemFileOpener(null))
+
 const remainingMs = computed<number | null>(() => {
   if (!boot || !boot.ok) return null
   void nowTick.value // 建立心跳依赖：每秒重算
@@ -595,8 +676,34 @@ const sessionInfo = computed(() => {
 /** T-5min 预览区顶部提示（手册「编辑器顶部提示」条目；与 SessionBanner 面板横幅并存=手册的两处提示口径） */
 const showExpireHint = computed(() => remainingMs.value !== null && remainingMs.value <= EXPIRE_WARN_BEFORE_MS)
 
-function toggleLocale() {
-  preference.setLocale(preference.locale === 'zh-CN' ? 'en-US' : 'zh-CN')
+/** 信息窗语言行（2026-10 自头部迁入）：FcSegmented 直连 preference（即时生效+持久化） */
+const localeModel = computed<'zh-CN' | 'en-US'>({
+  get: () => preference.locale as 'zh-CN' | 'en-US',
+  set: (v) => preference.setLocale(v),
+})
+const localeOptions = [
+  { label: '中', value: 'zh-CN' },
+  { label: 'EN', value: 'en-US' },
+]
+
+// ── 2026-10 布局改版：左侧文件树可拖动调宽（200~480px）、可隐藏（分隔条折叠钮/双击） ──
+
+const treeWidth = ref(280)
+const treeHidden = ref(false)
+function onSplitterDown(e: PointerEvent): void {
+  if (treeHidden.value) return
+  e.preventDefault()
+  const startX = e.clientX
+  const startW = treeWidth.value
+  const move = (ev: PointerEvent) => {
+    treeWidth.value = Math.min(480, Math.max(120, startW + (ev.clientX - startX))) // 下限 120：文件名省略号兜底，再窄可折叠
+  }
+  const up = () => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
 }
 
 // ── Wave G 集成：全局搜索面板（G2）/ 状态栏（G3）/ 本地连接向导（G5） ──
@@ -628,11 +735,6 @@ function onSearchLocate(payload: { key: string }): void {
 }
 
 /** G3 状态栏数据源：传输中任务数（上传 uploading/paused + 下载 active） */
-const activeTransfers = computed(
-  () =>
-    uploadTasks.value.filter((x) => x.status === 'uploading' || x.status === 'paused').length +
-    (downloads?.tasks.filter((x) => x.status === 'active').length ?? 0),
-)
 /** G3 只读语义：workspace=写类 features 全显式关闭；file=无 save 段（降级可见，非报错形态） */
 const isReadonly = computed(() => {
   if (ws) return ['upload', 'mkdir', 'rename', 'delete'].every((k) => features.value[k] === false)
@@ -684,7 +786,7 @@ if (ws) {
       handler: () => void ws.stores.tree.loadDir(ws.stores.tree.currentPath, { force: true }),
     },
     { id: 'cmd:goto-root', labelKey: 'files.tree.root', icon: 'ri-home-4-line', handler: () => void ws.stores.tree.loadDir(ws.rootPrefix) },
-    { id: 'cmd:toggle-locale', labelKey: 'home.toggle-locale', icon: 'ri-translate-2', handler: () => toggleLocale() },
+    { id: 'cmd:toggle-locale', labelKey: 'home.toggle-locale', icon: 'ri-translate-2', handler: () => { localeModel.value = localeModel.value === 'zh-CN' ? 'en-US' : 'zh-CN' } },
     // R2-01 顺带：传输面板入口（此前唯一入口是底部常驻面板条本身）
     { id: 'cmd:transfers', labelKey: 'statusbar.transfers', icon: 'ri-arrow-left-right-line', handler: () => openTransferPanel() },
   ])
@@ -692,7 +794,7 @@ if (ws) {
 </script>
 
 <template>
-  <div class="home-page" :class="{ 'is-workspace': ws }">
+  <div class="home-page" :class="{ 'is-workspace': ws, 'is-file': fileConfig }">
     <!-- ① boot 失败：配置错误卡（保留 M0） -->
     <FcSectionCard v-if="boot && !boot.ok" class="home-hero" padding="lg">
       <h1 class="home-hero__title">{{ t('boot.config-error') }}</h1>
@@ -704,35 +806,25 @@ if (ws) {
       <ConnectWizard v-model:open="wizardOpen" />
     </FcSectionCard>
 
-    <!-- ② workspace：会话横幅 + 操作条 + 左树右预览（M2 换多 tab）+ 上传任务面板（F5） -->
+    <!-- ② workspace：会话横幅 + 左树（可拖宽/可隐藏）右预览（M2 换多 tab；Toolbar 挂预览头右侧）+ 上传任务面板（F5） -->
     <div v-else-if="ws" class="ws">
-      <header class="ws__header">
-        <h1 class="ws__title">{{ t('home.title') }}</h1>
-        <FcTag>{{ ws.mode }}</FcTag>
-        <FcTag v-if="sessionInfo">{{ t('boot.session-remaining') }}: {{ sessionInfo }}</FcTag>
-        <span class="ws__spacer" />
-        <FcButton variant="text" size="sm" @click="toggleLocale">{{ t('home.toggle-locale') }}</FcButton>
-      </header>
+      <!-- 2026-10：信息头移除——模式/存储桶/会话/语言全量收进 ⓘ 信息窗（预览头右侧） -->
       <SessionBanner :session="ws.session" />
-      <Toolbar
-        :controller="ws.stores.tree"
-        :queue="toolbarQueue"
-        :selected="selected"
-        :features="features"
-        @changed="onChanged"
-        @download="downloadEntries"
-        @search="searchOpen = true"
-        @share="openShare"
-      />
       <!-- 复审 #10：T-5min 顶部细条提示（SessionBanner 面板横幅之外的第二处提示位，手册口径） -->
       <div v-if="showExpireHint" class="ws__expire-hint" data-testid="session-top-warn">
         {{ t('files.session.warn') }}
       </div>
       <div class="ws__body">
+        <!-- 2026-10：树宽走 inline style（分隔条拖拽调 200~480px），flex:none 防 flex 拉伸；
+             drawer 模式（ui.treeMode=drawer）不渲染常驻侧栏/分隔条，树由左抽屉承载 -->
         <TreePanel
+          v-if="!isDrawerTree"
+          v-show="!treeHidden"
           class="ws__tree"
+          :style="{ width: treeWidth + 'px', flex: 'none' }"
           :controller="ws.stores.tree"
           :root-prefix="ws.rootPrefix"
+          :tree-title="treeTitle"
           :selected="selected"
           :features="features"
           :registry="registry"
@@ -741,18 +833,128 @@ if (ws) {
           @open-with="onOpenWith"
           @menu-action="onMenuAction"
           @drop-files="onDropFiles"
+          @search="searchOpen = true"
         />
-        <FcSectionCard class="ws__preview" padding="lg">
-          <!-- Lane H1：预览 Tab 条（预览态/钉住/LRU；纯受控，状态在 Home；file 模式不挂） -->
-          <PreviewTabs
-            :tabs="previewTabs"
-            :active-key="activeTabKey"
-            @activate="onTabActivate"
-            @close="onTabClose"
-            @pin-toggle="onTabPinToggle"
-          />
+        <div
+          v-if="!isDrawerTree"
+          class="ws__splitter"
+          data-testid="tree-splitter"
+          @pointerdown="onSplitterDown"
+          @dblclick="treeHidden = !treeHidden"
+        >
+          <button
+            type="button"
+            class="ws__splitter-toggle"
+            data-testid="tree-toggle"
+            :title="treeHidden ? t('files.tree.expand') : t('files.tree.collapse')"
+            @click.stop="treeHidden = !treeHidden"
+          >
+            <i :class="treeHidden ? 'ri-arrow-right-s-line' : 'ri-arrow-left-s-line'" />
+          </button>
+        </div>
+        <FcSectionCard class="ws__preview" :class="{ 'is-page-fs': previewFullscreen }" padding="none">
+          <!-- 预览区头 = [抽屉唤起钮（仅 drawer 模式）| PreviewTabs（左，自适应）| Toolbar 选中簇（右）]（2026-10 布局改版） -->
+          <div class="ws__preview-head">
+            <!-- 左抽屉模式：文件区左上角文件图标 → 唤起文件树抽屉 -->
+            <button
+              v-if="isDrawerTree"
+              type="button"
+              class="ws__drawer-btn"
+              data-testid="tree-drawer-open"
+              :title="t('files.tree.drawer-open')"
+              :aria-label="t('files.tree.drawer-open')"
+              @click="treeDrawerOpen = true"
+            >
+              <i class="ri-file-list-line" />
+            </button>
+            <!-- Lane H1：预览 Tab 条（预览态/钉住/LRU；纯受控，状态在 Home；file 模式不挂） -->
+            <PreviewTabs
+              :tabs="previewTabs"
+              :active-key="activeTabKey"
+              @activate="onTabActivate"
+              @close="onTabClose"
+              @pin-toggle="onTabPinToggle"
+            />
+            <!-- 2026-10：无文件（无 tab）时不显示选中簇 -->
+            <Toolbar
+              v-show="previewTabs.length > 0"
+              :controller="ws.stores.tree"
+              :selected="selected"
+              :features="features"
+              :preview-app="previewAppInfo"
+              @changed="onChanged"
+              @download="downloadEntries"
+              @share="openShare"
+              @switch-app="onSwitchPreviewApp"
+            />
+            <!-- 全屏预览卡（2026-10：整卡放大；浏览器内全屏，Esc/再点退出；无文件也常驻，与 [i] 同列最右） -->
+            <button
+              type="button"
+              class="ws__fs-btn"
+              data-testid="preview-fullscreen"
+              :title="previewFullscreen ? t('files.exit-fullscreen') : t('files.fullscreen')"
+              :aria-label="previewFullscreen ? t('files.exit-fullscreen') : t('files.fullscreen')"
+              @click="togglePreviewFullscreen"
+            >
+              <i :class="previewFullscreen ? 'ri-fullscreen-exit-line' : 'ri-fullscreen-line'" />
+            </button>
+            <!-- ⓘ 状态弹窗（2026-10 迁入文件工具栏最右侧；无文件时常显） -->
+            <span class="ws__info-wrap">
+              <FcPopover trigger="click" placement="bottom-end" :width="264">
+                <!-- trigger=click 默认自带 toggle（组件内 el-popover 包裹 reference），无需手接开关 -->
+                <template #trigger>
+                  <button
+                    type="button"
+                    class="ws__info-btn"
+                    data-testid="session-info"
+                    :title="t('statusbar.session')"
+                    :aria-label="t('statusbar.session')"
+                  >
+                    <i class="ri-information-line" />
+                  </button>
+                </template>
+                <div class="ws__info-pop">
+                  <p><span>{{ t('statusbar.mode') }}</span><b>{{ ws.mode }}</b></p>
+                  <p><span>{{ t('statusbar.bucket') }}</span><b>{{ bucketName || '-' }}</b></p>
+                  <p><span>{{ t('statusbar.session') }}</span><b>{{ sessionInfo || '-' }}</b></p>
+                  <p v-if="isReadonly"><span>{{ t('statusbar.readonly') }}</span><b>{{ t('statusbar.readonly-hint') }}</b></p>
+                  <!-- 2026-10：语言切换自头部迁入信息窗（即时生效，持久化在 preference store） -->
+                  <div class="ws__info-pop__lang">
+                    <span>{{ t('home.toggle-locale') }}</span>
+                    <FcSegmented v-model="localeModel" :options="localeOptions" size="sm" />
+                  </div>
+                </div>
+              </FcPopover>
+            </span>
+          </div>
           <div ref="previewEl" class="ws__preview-host" />
         </FcSectionCard>
+        <!-- 左抽屉模式：文件树面板（与侧栏同组件同 props，仅容器不同；TreePanel 单实例逻辑零复制）；
+             无标题栏（with-header=false），全高树体 -->
+        <FcDrawer
+          v-if="isDrawerTree"
+          v-model:open="treeDrawerOpen"
+          direction="ltr"
+          size="300px"
+          :with-header="false"
+        >
+          <div class="ws__drawer-tree">
+            <TreePanel
+              :controller="ws.stores.tree"
+              :root-prefix="ws.rootPrefix"
+              :tree-title="treeTitle"
+              :selected="selected"
+              :features="features"
+              :registry="registry"
+              @select="onSelect"
+              @open="onDrawerOpen"
+              @open-with="onDrawerOpenWith"
+              @menu-action="onMenuAction"
+              @drop-files="onDropFiles"
+              @search="searchOpen = true"
+            />
+          </div>
+        </FcDrawer>
       </div>
       <!-- Lane G1：传输任务中心（上传 + 下载统一视图；终态清除，进行中/暂停保留） -->
       <UploadPanel
@@ -777,30 +979,20 @@ if (ws) {
       />
       <!-- Lane H-2：分享链接生成器（GET/PUT 预签名；client 缺能力/目录条目=禁用态） -->
       <ShareDialog v-model:open="shareOpen" :client="ws.stores.client" :entry="shareEntry" />
-      <!-- Lane G3：常驻状态栏（位置/传输/只读降级徽章/会话倒计时） -->
-      <StatusBar
-        :bucket="bucketName"
-        :prefix="ws.stores.tree.currentPath"
-        :transfers="activeTransfers"
-        :readonly="isReadonly"
-        :session="remainingMs !== null ? { remainingMs: remainingMs } : null"
-      />
+      <!-- 2026-10：底部状态栏已并入头部（存储桶 chip + ⓘ 弹窗），StatusBar 组件下线 -->
     </div>
 
-    <!-- ③ file：单文件预览（F2：registry 按 name 解析默认应用渲染；头部分名+只读/可编辑标记） -->
-    <FcSectionCard v-else-if="fileConfig" class="file-view" padding="lg">
-      <header class="file-view__head">
-        <h1 class="home-hero__title home-hero__title--file">{{ fileName }}</h1>
-        <FcTag>{{ fileConfig.save ? t('files.placeholder.editable') : t('files.placeholder.readonly') }}</FcTag>
-      </header>
+    <!-- ③ file：单文件预览（F2：registry 按 name 解析默认应用渲染）。
+         v1.2 无壳：无 header/无卡片包裹——4px 内边距铺满视口，文件名/编辑态由应用自渲染 -->
+    <div v-else-if="fileConfig" class="file-view-host">
       <div ref="previewEl" class="ws__preview-host" />
-    </FcSectionCard>
+    </div>
 
     <!-- ④ 兜底：BOOT 未注入（异常装配）保留 M0 hero -->
     <FcSectionCard v-else class="home-hero" padding="lg">
       <h1 class="home-hero__title">{{ t('home.title') }}</h1>
       <p class="home-hero__subtitle">{{ t('home.subtitle') }}</p>
-      <FcButton variant="secondary" @click="toggleLocale">{{ t('home.toggle-locale') }}</FcButton>
+      <FcButton variant="secondary" @click="localeModel = localeModel === 'zh-CN' ? 'en-US' : 'zh-CN'">{{ t('home.toggle-locale') }}</FcButton>
     </FcSectionCard>
   </div>
 </template>
@@ -812,9 +1004,22 @@ if (ws) {
   justify-content: center;
   min-height: 60vh;
 
+  /* 单文件模式（用户订单：无 header/无包裹层）：同全高拉伸，外层只留 4px 内边距；
+     高度 100vh 同时最小 768px——矮视口（<768）下保持可用高度，溢出由页面滚动承接 */
+  &.is-file {
+    align-items: stretch;
+    justify-content: stretch;
+    height: 100vh;
+    min-height: 768px;
+    padding: 4px;
+  }
+
   &.is-workspace {
     align-items: stretch;
     justify-content: stretch;
+    /* 2026-10 全高布局：工作台占满视口（用户订单：树侧栏/内容区 100vh 自动高度），
+       高度沿 .ws(flex 列) → .ws__body(flex:1) → 预览卡/树 拉伸链下放 */
+    height: 100vh;
     min-height: 0;
   }
 }
@@ -855,23 +1060,71 @@ if (ws) {
   flex-direction: column;
   gap: 8px;
   width: 100%;
+  min-height: 0; /* flex 项允许内部收缩——全高布局链一环 */
 }
 
-.ws__header {
+/* ⓘ 状态弹窗入口（ghost 图标钮，同树头/选中簇口径） */
+.ws__info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  border-radius: var(--app-radius-button, 6px);
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  font-size: 16px;
+  transition: background 0.15s, color 0.15s;
+
+  &:hover {
+    background: var(--app-bg-muted);
+    color: var(--app-primary);
+  }
+}
+
+.ws__info-pop__lang {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--app-separator);
+  font-size: 13px;
+
+  span {
+    color: var(--app-text-tertiary);
+  }
 }
 
-.ws__title {
+.ws__info-pop {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--app-text-primary);
-}
 
-.ws__spacer {
-  flex: 1;
+  p {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0;
+    font-size: 13px;
+    color: var(--app-text-secondary);
+
+    span {
+      color: var(--app-text-tertiary);
+      flex: none;
+    }
+    b {
+      color: var(--app-text-primary);
+      font-weight: 600;
+      text-align: right;
+      overflow-wrap: anywhere;
+    }
+  }
 }
 
 .ws__expire-hint {
@@ -883,25 +1136,153 @@ if (ws) {
   font-size: 13px;
 }
 
+/* 2026-10：grid → flex（树宽 inline style 可拖 + 分隔条；预览侧 min-width:0 承接旧 minmax(0,1fr)） */
 .ws__body {
-  display: grid;
-  grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
-  gap: 12px;
+  display: flex;
+  flex: 1; /* 全高布局：吃掉横幅以下的全部剩余高度 */
+  gap: 2px; /* 用户口径：树|分隔条|预览 间紧凑 2px（2026-10 由 8px 收紧） */
   align-items: stretch;
   min-height: 0;
 }
 
+/* 树宽由 inline style 控制（treeWidth，拖拽 200~480px；flex:none），此处不再定宽；
+   高度随 .ws__body 拉伸（stretch），无 68vh 上限（2026-10 全高布局） */
 .ws__tree {
-  max-height: 68vh;
   padding: 8px;
   background: var(--app-section-bg);
   border: 1px solid var(--app-section-border-color);
   border-radius: var(--app-section-radius);
 }
 
-/* 块级布局：flex 居中会把 .fc-section__body 压到 min-content 宽（Monaco 曾塌陷 5×5 的宽度向根因） */
+/* 左抽屉模式：预览区左上角唤起钮（ghost 图标钮，复用 ws-toolbar__act 口径） */
+.ws__drawer-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  border-radius: var(--app-radius-button, 6px);
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  font-size: 15px;
+  transition: background 0.15s, color 0.15s;
+
+  &:hover {
+    background: var(--app-bg-muted);
+    color: var(--app-text-primary);
+  }
+}
+
+/* 抽屉内文件树撑满（el-drawer body 非 flex，由包裹层接管高度） */
+.ws__drawer-tree {
+  height: 100%;
+
+  :deep(.tree-panel) {
+    height: 100%;
+  }
+}
+
+/* 块级布局：flex 居中会把 .fc-section__body 压到 min-content 宽（Monaco 曾塌陷 5×5 的宽度向根因）；
+   flex:1 + min-width:0 允许预览卡收缩吃剩余宽（同旧 grid minmax(0,1fr) 口径） */
 .ws__preview {
+  flex: 1;
+  display: flex; /* 全高布局：卡内纵向 flex——head(40px) 定高 + host 撑满剩余 */
+  flex-direction: column;
+  min-width: 0;
   min-height: 320px;
+
+  /* FcSection 的 __body 默认只有 flex 列、无拉伸——不撑开它，preview-host 的 flex:1 永远停在 min-height */
+  :deep(.fc-section__body) {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* 浏览器内全屏：fixed 铺满视口（非系统 Fullscreen API）；z-index 低于 EP 弹层（2000+），宿主弹窗仍可盖入 */
+  &.is-page-fs {
+    position: fixed;
+    inset: 0;
+    z-index: 1500;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    border-radius: 0;
+  }
+}
+
+/* 预览区头 = [PreviewTabs（左，自适应）| 全屏钮 | Toolbar 选中簇（右）]（2026-10 布局改版） */
+.ws__preview-head {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  gap: 8px;
+
+  /* 全屏预览卡：ghost 图标钮（口径同 ws-toolbar__act）；margin-left:auto 由它承担推右
+    （[i] 的 auto 已移除——双 auto 会平分空隙导致按钮悬在中间） */
+  .ws__fs-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    margin-left: auto;
+    border: none;
+    border-radius: var(--app-radius-sm);
+    background: transparent;
+    color: var(--app-text-secondary);
+    cursor: pointer;
+    font-size: 16px;
+
+    &:hover {
+      background: color-mix(in srgb, var(--app-primary) 10%, transparent);
+      color: var(--app-text);
+    }
+  }
+
+  /* ⓘ 恒居最右（tabs flex:1 占满时自然靠右；无 tab 时由 auto 推右） */
+  .ws__info-wrap {
+    display: inline-flex;
+    align-items: center;
+  }
+}
+
+/* 树/预览分隔条：拖拽调树宽；中点折叠钮（双击空白处同效） */
+.ws__splitter {
+  position: relative;
+  flex: none;
+  width: 6px;
+  border-radius: 3px;
+  background: transparent;
+  cursor: col-resize;
+
+  &:hover {
+    background: var(--app-bg-muted);
+  }
+}
+
+.ws__splitter-toggle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--app-separator);
+  border-radius: 9px;
+  background: var(--app-bg-card);
+  color: var(--app-text-tertiary);
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+
+  &:hover {
+    color: var(--app-primary);
+  }
 }
 
 /* F5（优化建议 C1）：预览舞台恒定尺寸——不再随内容/父级 flex 塌陷（曾致 Monaco 5×5px 不可视）。
@@ -909,29 +1290,56 @@ if (ws) {
 .ws__preview-host {
   position: relative;
   width: 100%;
-  height: min(68vh, 720px);
+  flex: 1; /* 全高布局：撑满预览卡剩余高度（min-height 链保底防 Monaco 零测量塌陷，C1 口径不变） */
   min-height: 320px;
   overflow: auto;
+  padding: 2px;
+  border-top: 1px solid var(--app-separator);
 
   :deep(.mmf-preview-stage) {
     min-height: 100%;
   }
 }
 
-.file-view {
-  width: min(960px, 100%);
-}
-
-.file-view__head {
+/* 单文件预览容器（v1.2 无壳）：铺满 .is-file 剩余空间（外层已给 4px 内边距），
+   纵向 flex 让舞台分到确定高度（fill 型插件 absolute 根节点依赖） */
+.file-view-host {
+  flex: 1;
+  min-height: 0;
   display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+  flex-direction: column;
+
+  .ws__preview-host {
+    min-height: 0; /* 全高链下不需要 320px 兜底 */
+    padding: 0; /* 4px 由外层 .is-file 统一给 */
+    border-top: none; /* 无卡片壳即无分隔线 */
+    /* 纵向 flex：舞台从 host 分确定实高（fill 型插件 absolute 根节点依赖实高；
+       flow 渲染器 basis:auto 随内容长高、host overflow:auto 滚动） */
+    display: flex;
+    flex-direction: column;
+
+    :deep(.mmf-preview-stage) {
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+  }
 }
 
 @media (max-width: 720px) {
+  .ws {
+    height: auto; /* 窄屏回落自然流：树/预览上下堆叠不锁视口 */
+  }
+
   .ws__body {
-    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .ws__tree {
+    width: auto !important; /* 覆盖 inline style：窄屏回落为上下堆叠满宽 */
+  }
+
+  .ws__splitter {
+    display: none;
   }
 }
 </style>

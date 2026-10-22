@@ -20,6 +20,7 @@ export const MARKDOWN_MAX_BYTES = 5 * 1024 * 1024
 export const CODE_MAX_BYTES = 5 * 1024 * 1024
 export const CSV_TABLE_MAX_BYTES = 20 * 1024 * 1024
 export const HEIC_VIEWER_MAX_BYTES = 32 * 1024 * 1024
+export const MERMAID_MAX_BYTES = 5 * 1024 * 1024
 
 export interface BuiltinAppSpec {
   code: string
@@ -33,11 +34,14 @@ export interface BuiltinAppSpec {
 
 export const BUILTIN_APP_SPECS: BuiltinAppSpec[] = [
   { code: 'image-viewer', labelKey: 'app.image-viewer', type: 'view', matcher: { ext: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'] }, actions: ['preview'] },
-  { code: 'image-painter', labelKey: 'app.image-painter', type: 'edit', matcher: { ext: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'] }, actions: ['edit'] },
   { code: 'video-player', labelKey: 'app.video-player', type: 'view', matcher: { ext: ['mp4', 'webm', 'mov'] }, actions: ['preview'] },
   { code: 'audio-player', labelKey: 'app.audio-player', type: 'view', matcher: { ext: ['mp3', 'wav', 'ogg', 'flac', 'm4a'] }, actions: ['preview'] },
   { code: 'pdf-viewer', labelKey: 'app.pdf-viewer', type: 'view', matcher: { ext: ['pdf'] }, actions: ['preview'] },
   { code: 'markdown-renderer', labelKey: 'app.markdown-renderer', type: 'view', matcher: { ext: ['md', 'markdown'] }, actions: ['preview'], maxBytes: MARKDOWN_MAX_BYTES },
+  // 图示双应用（设计正本《流程图应用设计（Mermaid+X6）》§六）：editor 默认（graph TD 可视化编辑），
+  // viewer 经「打开方式」可达（其余 mermaid 语法 mindmap/sequence/architecture 只走 viewer）
+  { code: 'flow-editor', labelKey: 'app.flow-editor', type: 'edit', matcher: { ext: ['mmd', 'mermaid'] }, actions: ['edit'], maxBytes: MERMAID_MAX_BYTES },
+  { code: 'mermaid-viewer', labelKey: 'app.mermaid-viewer', type: 'view', matcher: { ext: ['mmd', 'mermaid'] }, actions: ['preview'], maxBytes: MERMAID_MAX_BYTES },
   // F3：渲染类应用先于 code-editor 注册（注册序=默认应用优先级）——
   // csv/tsv 默认进 csv-table 表格预览，code-editor 的文本态经「打开方式」可达（不再抢占默认）。
   { code: 'csv-table', labelKey: 'app.csv-table', type: 'view', matcher: { ext: ['csv', 'tsv'] }, actions: ['preview'], maxBytes: CSV_TABLE_MAX_BYTES },
@@ -50,6 +54,7 @@ export const BUILTIN_APP_SPECS: BuiltinAppSpec[] = [
         'txt', 'log', 'conf', 'ini', 'env',
         'js', 'ts', 'jsx', 'tsx', 'py', 'java', 'go', 'rs', 'c', 'cpp', 'h', 'cs', 'php', 'rb', 'swift', 'kt',
         'sql', 'sh', 'yaml', 'yml', 'json', 'xml', 'html', 'css', 'scss', 'vue',
+        'mmd', 'mermaid', // 图示源码态（mermaid-viewer 渲染，code-editor 文本态经「打开方式」）
         'md', 'markdown', 'csv', // 源码态/文本态（与渲染类应用并列「打开方式」）
       ],
     },

@@ -64,6 +64,20 @@ function mountNativeFrame(el: HTMLElement, blob: Blob, fileName: string): AppIns
  * 翻页渲染失败仅静默（保留当前画面，不打断浏览）。
  */
 async function mountPdfJs(el: HTMLElement, blob: Blob, ctx: AppCtx): Promise<AppInstance> {
+  // 组件样式随实例注入/移除（渲染器无 SFC scope；色值全走 token，禁硬编码）
+  const style = document.createElement('style')
+  style.textContent = `
+.mmagic-pdfjs{min-height:100%;display:flex;flex-direction:column;box-sizing:border-box;background:var(--app-bg-muted,#f5f5f5)}
+.mmagic-pdfjs-bar{display:flex;align-items:center;justify-content:center;gap:12px;flex:none;
+  padding:4px 12px;background:var(--app-bg-card,#fff);border-bottom:1px solid var(--app-separator,#e5e7eb)}
+.mmagic-pdfjs-bar button{padding:2px 12px;font-size:12px;color:var(--app-text-secondary,#666);
+  background:transparent;border:1px solid var(--app-separator,#e5e7eb);
+  border-radius:var(--app-radius-button,6px);cursor:pointer;transition:background .15s,color .15s}
+.mmagic-pdfjs-bar button:hover{background:var(--app-bg-muted,#f5f5f5);color:var(--app-text-primary,#111)}
+.mmagic-pdfjs-bar button:disabled{opacity:.4;cursor:not-allowed}
+.mmagic-pdfjs-page{font-size:12px;color:var(--app-text-secondary,#666);min-width:48px;text-align:center}
+.mmagic-pdfjs-canvas{margin:16px auto;background:#fff;box-shadow:var(--app-shadow-sm,0 1px 4px rgba(0,0,0,.1))}
+`
   const root = document.createElement('div')
   root.className = 'mmagic-pdfjs'
   const bar = document.createElement('div')
@@ -83,8 +97,9 @@ async function mountPdfJs(el: HTMLElement, blob: Blob, ctx: AppCtx): Promise<App
   const canvas = document.createElement('canvas')
   canvas.className = 'mmagic-pdfjs-canvas'
   canvas.style.maxWidth = '100%'
+  canvas.style.height = 'auto'
   root.append(bar, canvas)
-  el.appendChild(root)
+  el.append(style, root)
 
   let task: PDFDocumentLoadingTask | null = null
   const ac = new AbortController()
@@ -135,6 +150,7 @@ async function mountPdfJs(el: HTMLElement, blob: Blob, ctx: AppCtx): Promise<App
     return {
       dispose: () => {
         ac.abort()
+        style.remove()
         root.remove()
         // 释放文档/worker；失败（已销毁等）静默——dispose 不抛出
         void task?.destroy().catch(() => {})
@@ -144,6 +160,7 @@ async function mountPdfJs(el: HTMLElement, blob: Blob, ctx: AppCtx): Promise<App
   } catch {
     // 半成品容器先撤（可能已挂出工具条/canvas），再落提示节点
     ac.abort()
+    style.remove()
     root.remove()
     void task?.destroy().catch(() => {})
     task = null

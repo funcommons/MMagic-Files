@@ -263,6 +263,7 @@ describe('savedState（dispose 前采集，切回=重跑+状态恢复）', () =>
       { key: A.key, name: A.name, size: A.size },
       expect.anything(),
       undefined,
+      undefined,
     )
     await preview.open(B)
     await preview.open(A)
@@ -273,6 +274,7 @@ describe('savedState（dispose 前采集，切回=重跑+状态恢复）', () =>
       { key: A.key, name: A.name, size: A.size },
       expect.anything(),
       { n: 1 },
+      undefined,
     )
   })
 
@@ -283,7 +285,7 @@ describe('savedState（dispose 前采集，切回=重跑+状态恢复）', () =>
     await preview.open(B)
     await preview.open(A)
     expect(vi.mocked(app.renderer)).toHaveBeenCalledTimes(3)
-    expect(vi.mocked(app.renderer)).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), expect.anything(), undefined)
+    expect(vi.mocked(app.renderer)).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), expect.anything(), undefined, undefined)
   })
 
   it('容量上限 32：超出淘汰最旧（最旧回注 undefined、新鲜仍回注）', async () => {
@@ -437,6 +439,37 @@ describe('指定应用 open(entry, { appId })', () => {
     expect(err).not.toBeNull()
     expect(err?.querySelector('.mmf-preview-error__title')?.textContent).toBe('files.preview-error-title')
     expect(err?.querySelector('.mmf-preview-error__message')?.textContent).toContain('nope')
+    expect(preview.current()).toBe(A)
+  })
+
+  it('指定应用未命中 → ensureApps 补载后重试 require：命中则正常渲染（插件注册竞态兜底）', async () => {
+    // 场景：启动即载插件 void load() 未阻塞 ready，uploadFiles+appId 先于 activate 到达
+    const late: AppDefinition = {
+      id: 'late-app',
+      matcher: { ext: ['md'] },
+      renderer: vi.fn((el: HTMLElement) => {
+        el.textContent = 'late-rendered'
+      }),
+    }
+    const reg = new AppRegistry()
+    const ensureApps = vi.fn(async () => {
+      const r = reg.register(late)
+      if (!r.ok) throw new Error(`register 失败：${r.reason}`)
+    })
+    const { container, preview } = makePreview(reg, { ensureApps })
+    await preview.open(A, { appId: 'late-app' })
+    expect(ensureApps).toHaveBeenCalledTimes(1)
+    expect(container.querySelector('.mmf-preview-stage')?.textContent).toBe('late-rendered')
+    expect(vi.mocked(late.renderer)).toHaveBeenCalledTimes(1)
+  })
+
+  it('ensureApps 补载后仍未命中：仍出错误节点（保持 not-found 语义，不抛裸异常）', async () => {
+    const ensureApps = vi.fn(async () => {
+      /* 补载但不注册目标应用 */
+    })
+    const { container, preview } = makePreview(new AppRegistry(), { ensureApps })
+    await expect(preview.open(A, { appId: 'ghost' })).resolves.toBeUndefined()
+    expect(container.querySelector('.mmf-preview-error')).not.toBeNull()
     expect(preview.current()).toBe(A)
   })
 })
@@ -830,5 +863,33 @@ describe('渲染器限额联动闸（R2-03：实际拒绝线 = min(REJECT, def.m
     await preview.open(tiny)
     expect(confirm).not.toHaveBeenCalled()
     expect(container.querySelector('.mmf-preview-stage')?.textContent).toBe('md!')
+  })
+})
+
+describe('appOptions 打开参数（v1.2 内存文件独立区）', () => {
+  it('open({appId, appOptions}) → renderer 第 5 参透传 appOptions（savedState 缺位时 undefined）', async () => {
+    const app = renderApp('app1')
+    const { preview } = makePreview(makeRegistry(app))
+    await preview.open(A, { appId: 'app1', appOptions: { initialMode: 'preview' } })
+    expect(vi.mocked(app.renderer)).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      undefined,
+      { initialMode: 'preview' },
+    )
+  })
+
+  it('不带 appOptions：renderer 第 5 参恒 undefined（向后兼容）', async () => {
+    const app = renderApp('app1')
+    const { preview } = makePreview(makeRegistry(app))
+    await preview.open(A)
+    expect(vi.mocked(app.renderer)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      undefined,
+      undefined,
+    )
   })
 })

@@ -39,6 +39,14 @@ export const docxRenderer: AppDefinition['renderer'] = async (el, file, ctx) => 
     el.appendChild(view)
 
     await renderAsync(buffer, view, undefined, { inWrapper: true })
+    // 横向滚动修正：docxjs 的 .docx-wrapper 是 flex+align-items:center——页面比宿主宽时
+    // 「不安全居中」两侧对称溢出（左缘不可达、scrollWidth 传播不稳）。改 max-content 包宽：
+    // wrapper 与页面同宽→溢出精确传播到宿主滚动容器（宿主底缘出横向滚动条，左缘可达）
+    const wrap = view.querySelector<HTMLElement>('.docx-wrapper')
+    if (wrap) {
+      wrap.style.width = 'max-content'
+      wrap.style.minWidth = '100%'
+    }
     return { dispose: () => view?.remove() }
   } catch {
     // 半成品容器先撤（renderAsync 中途失败可能已注入部分 DOM），再落提示节点

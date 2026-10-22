@@ -12,6 +12,9 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    /* base 钉 ES2020（对齐 vite build target）；本仓 target 已 ES2022 且 flow 线使用 .at 等
+       ES2022 内建（方法不参与语法降级，无 polyfill 断层）——lib 显式对齐 target（flow 线类型清账前置） */
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
 
     /* Linting — 严格模式全开 */
     "strict": true,

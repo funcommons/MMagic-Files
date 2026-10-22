@@ -197,6 +197,9 @@ export class MessageBus {
   // ── 收包 ──
 
   private handleMessage(e: MessageEvent): void {
+    // 同窗回环（e.source=本窗）：本窗内库（pdf.js/univer 等调度器）自 postMessage 落回自身，
+    // 必非对端流量——真静默丢弃（不打日志）；即便 origin 恰在白名单（同源部署）也不得当对端包处理
+    if (e.source === this.win) return
     // §一：origin 不在白名单 → 静默丢弃，不回任何消息（仅日志）
     if (!this.opts.allowedOrigins.includes(e.origin)) {
       console.warn(`[MessageBus] origin 不在白名单，静默丢弃: ${e.origin}`)

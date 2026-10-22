@@ -6,6 +6,7 @@
  */
 import type { S3Client } from '../sdk/types'
 import type { UrlSourceProvider } from '../sdk/url-source'
+import { isMemKey, memGet, memUpdate } from '../files/mem-store'
 
 export interface AppDataSource {
   getObject(key: string): Promise<Blob>
@@ -15,6 +16,36 @@ export interface AppDataSource {
    * 媒体渲染器以它作 src 实现「Range 拖动」（见 renderers/media.ts 实现口径注释）。
    */
   getMediaUrl?(key: string): string
+}
+
+/**
+ * 内存文件分流（用户口径「上传文件·内存中处理」）：`mem://` 键不落 S3——getObject/putObject
+ * 直读写 MemFileStore。所有 Blob-first 渲染器/插件零改动（ctx.getObject/putObject 对来源无感）；
+ * getMediaUrl 对 mem key 给 blob URL（媒体渲染器 Range 语义弱化为全量，内存文件无此诉求）。
+ */
+function withMemSource(ds: AppDataSource): AppDataSource {
+  const wrapped: AppDataSource = {
+    getObject: async (key) => {
+      if (isMemKey(key)) {
+        const e = memGet(key)
+        if (!e) throw new Error(`mem key not found: ${key}`)
+        return e.blob
+      }
+      return ds.getObject(key)
+    },
+    putObject: async (key, data, contentType) => {
+      if (isMemKey(key)) {
+        memUpdate(key, data, contentType)
+        return
+      }
+      await ds.putObject(key, data, contentType)
+    },
+  }
+  if (ds.getMediaUrl) {
+    const inner = ds.getMediaUrl.bind(ds)
+    wrapped.getMediaUrl = (key) => (isMemKey(key) ? URL.createObjectURL(memGet(key)!.blob) : inner(key))
+  }
+  return wrapped
 }
 
 /** 工作台模式：key=相对 prefix 的对象键（S3Client 内部已含 prefix 域语义） */
@@ -30,7 +61,7 @@ export function s3DataSource(client: S3Client): AppDataSource {
     const presign = client.getPresignedUrl.bind(client)
     ds.getMediaUrl = (key) => presign(key)
   }
-  return ds
+  return withMemSource(ds)
 }
 
 /**
@@ -53,5 +84,5 @@ export function urlDataSource(provider: UrlSourceProvider): AppDataSource {
     },
   }
   if (directGet && source) ds.getMediaUrl = () => source.url
-  return ds
+  return withMemSource(ds)
 }

@@ -6,7 +6,7 @@ import { test, expect } from '@playwright/test'
 import { configUrl, workspaceConfig, MOCK_PREFIX } from './fixtures/config'
 import { installS3Mock } from './fixtures/s3-mock'
 import { defaultSeed } from './fixtures/seed'
-import { attachConsole, consoleEvidence, enterDir, shot, waitTreeLoaded } from './fixtures/host'
+import { attachConsole, consoleEvidence, expandDir, shot, waitTreeLoaded } from './fixtures/host'
 
 test.describe('业务线2：workspace 浏览', () => {
   test('ws-01：根目录树渲染（目录行 + 文件行 + 大小/类型列）', async ({ page }) => {
@@ -29,29 +29,30 @@ test.describe('业务线2：workspace 浏览', () => {
     console.log('[ws-01] console 证据：\n' + consoleEvidence(cap))
   })
 
-  test('ws-02：进入子目录 + 面包屑回跳', async ({ page }) => {
+  test('ws-02：目录原位展开（子级下钻）+ 收起（2026-10 展开树范式）', async ({ page }) => {
     const cap = attachConsole(page)
     await installS3Mock(page, { seed: defaultSeed() })
     await page.goto(configUrl(workspaceConfig()))
     await waitTreeLoaded(page)
 
-    await enterDir(page, 'docs')
-    // docs/ 下：文件 guide.md + 子目录 img/（photo.png 在 img/ 内）
+    // 展开 docs/：guide.md 与子目录 img/ 原位下钻（根行 README.md 仍在视图内）
+    await expandDir(page, 'docs')
     await expect(page.locator('[data-testid="row"]', { hasText: 'guide.md' })).toBeVisible()
     await expect(page.locator('[data-testid="dir-name"]', { hasText: 'img' })).toBeVisible()
-    // 面包屑：可点祖先 test + 当前段 docs（当前段为 is-current span）
-    await expect(page.locator('[data-testid="crumb"]', { hasText: 'test' })).toBeVisible()
-    await expect(page.locator('.tree-panel__crumb.is-current')).toHaveText('docs')
+    await expect(page.locator('[data-testid="row"]', { hasText: 'README.md' })).toBeVisible()
     await shot(page, 'ws-02a-subdir-pass.png')
 
-    // 二级子目录 img/
-    await enterDir(page, 'img')
+    // 二级展开 img/：photo.png 出现在更深层（缩进）
+    await expandDir(page, 'img')
     await expect(page.locator('[data-testid="row"]', { hasText: 'photo.png' })).toBeVisible()
-    // 面包屑回跳：点 test（根）
-    await page.locator('[data-testid="crumb"]', { hasText: 'test' }).first().click()
+    await shot(page, 'ws-02b-nested-pass.png')
+
+    // 收起 docs/：子级（guide.md/photo.png）隐藏，根行保留
+    await expandDir(page, 'docs')
+    await expect(page.locator('[data-testid="row"]', { hasText: 'guide.md' })).toBeHidden()
+    await expect(page.locator('[data-testid="row"]', { hasText: 'photo.png' })).toBeHidden()
     await expect(page.locator('[data-testid="row"]', { hasText: 'README.md' })).toBeVisible()
-    await expect(page.locator('[data-testid="row"]', { hasText: 'demo.mp4' })).toBeVisible()
-    await shot(page, 'ws-02b-crumb-back-pass.png')
+    await shot(page, 'ws-02c-collapse-pass.png')
     console.log('[ws-02] console 证据：\n' + consoleEvidence(cap))
   })
 
@@ -64,7 +65,7 @@ test.describe('业务线2：workspace 浏览', () => {
     await page.goto(configUrl(workspaceConfig()))
     await waitTreeLoaded(page)
 
-    await enterDir(page, 'paged')
+    await expandDir(page, 'paged')
     // 三个文件都应出现（客户端聚合两页到尽）
     await expect(page.locator('[data-testid="row"]', { hasText: 'a.md' })).toBeVisible()
     await expect(page.locator('[data-testid="row"]', { hasText: 'b.md' })).toBeVisible()
@@ -96,7 +97,7 @@ test.describe('业务线2：workspace 浏览', () => {
 
     // B) 子目录 list 500（当前目录已有内容）：点击 broken → 错误 toast，树停在原目录
     state.failListPrefix[`${MOCK_PREFIX}broken/`] = 500
-    await enterDir(page, 'broken')
+    await expandDir(page, 'broken')
     await expect(page.locator('.el-message').first()).toBeVisible({ timeout: 15_000 })
     await expect(page.locator('[data-testid="row"]', { hasText: 'README.md' })).toBeVisible() // 未误切目录
     await shot(page, 'ws-04c-subdir-error-toast-pass.png', false)

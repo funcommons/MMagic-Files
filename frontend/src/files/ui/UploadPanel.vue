@@ -19,6 +19,8 @@ export interface UploadTaskView {
   loaded: number
   total: number
   status: 'uploading' | 'paused' | 'done' | 'failed' | 'cancelled'
+  /** 失败原因（failed 项；queue.errorOf 提供）——行内展示 + title 悬浮全文 */
+  error?: string
 }
 
 export interface DownloadTaskView {
@@ -118,6 +120,11 @@ function downloadPercentOf(task: DownloadTaskView): number {
           <span class="upload-panel__bar-fill" :style="{ width: uploadPercentOf(task) + '%' }" />
         </span>
         <span class="upload-panel__percent" data-testid="upload-percent">{{ uploadPercentOf(task) }}%</span>
+        <span
+          v-if="task.status === 'failed' && task.error"
+          class="upload-panel__error"
+          :title="task.error"
+        >{{ task.error }}</span>
         <span class="upload-panel__status" :data-status="task.status">{{ t(UPLOAD_STATUS_KEY[task.status]) }}</span>
         <span class="upload-panel__actions">
           <FcButton
@@ -248,6 +255,15 @@ function downloadPercentOf(task: DownloadTaskView): number {
   gap: 8px;
   padding: 4px 0;
   font-size: 13px;
+
+  .upload-panel__error {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--app-danger, #d54941);
+  }
 
   &.is-failed .upload-panel__status,
   &.is-failed .upload-panel__icon {

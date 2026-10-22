@@ -1,10 +1,10 @@
 /**
- * PreviewTabs 测试（Lane H1：预览 Tab 条——预览态/钉住/LRU，OpenVSCode 预览态模型）。
+ * PreviewTabs 测试（Lane H1：预览 Tab 条——追加制/钉住防淘汰/LRU）。
  * 覆盖点：
- *  1. 纯状态 upsertTab——首开追加；激活 tab 未钉住=原位替换（预览态，VS Code 斜体 tab 行为）；
- *     已钉住=追加；同 key 复开=原位保留（钉住状态不变、entry/appId 刷新）；
+ *  1. 纯状态 upsertTab（追加制）——新 key 恒追加（不替换）；同 key 复开=原位保留（钉住状态不变、entry/appId 刷新）；
  *  2. LRU 上限 8——超限淘汰最旧未钉住（排除当前激活）；全钉住=淘汰最旧未激活者；激活者与最新 tab 永不被淘汰；
- *  3. pinToggle（双击钉住/取消）与 pickNeighbor（关 tab 后相邻激活：右邻优先、末位取左邻）；
+ *  3. pinToggle（双击钉住/取消，上限 5 拒绝）与 pickNeighbor（关 tab 后相邻激活：右邻优先、末位取左邻）；
+ *  3b. applyOpenedTab（features.multiTab 门控）——true（缺省）=upsertTab 同语义；false=整表替换单 tab；
  *  4. 组件纯受控——tabs 空=不渲染；data-testid 全套（preview-tabs/preview-tab/preview-tab-pin/preview-tab-close）；
  *     单击 emit activate(entry)、双击 emit pin-toggle(key)、关闭钮 emit close(entry) 且不冒泡 activate；
  *  5. preview.onOpened（tab 链所需最小暴露）——open 链接管容器（含拒绝节点）时通知 entry；
@@ -12,7 +12,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import PreviewTabs, { findTab, pickNeighbor, pinToggle, upsertTab } from '../ui/PreviewTabs.vue'
+import PreviewTabs, { applyOpenedTab, findTab, pickNeighbor, pinToggle, upsertTab } from '../ui/PreviewTabs.vue'
 import type { PreviewTab } from '../ui/PreviewTabs.vue'
 import { PREVIEW_REJECT_BYTES, createPreview } from '../preview'
 import type { PreviewOptions } from '../preview'
@@ -71,22 +71,21 @@ afterEach(() => {
 
 // ───────────────────────── 纯状态：upsertTab（预览态替换/追加） ─────────────────────────
 
-describe('upsertTab（预览态语义）', () => {
+describe('upsertTab（追加制语义）', () => {
   it('首开（activeKey=null）→ 追加新 tab', () => {
     const tabs: PreviewTab[] = []
     upsertTab(tabs, mk('a'), null)
     expect(tabs.map((t) => t.entry.key)).toEqual(['a'])
-    expect(tabs[0]!.pinned).toBe(false) // 新 tab 恒未钉住（预览态）
+    expect(tabs[0]!.pinned).toBe(false) // 新 tab 恒未钉住
   })
 
-  it('激活 tab 未钉住 → 原位替换（位置保持、替换者未钉住、旧 tab 消失）', () => {
+  it('新 key 恒追加（激活 tab 未钉住也不替换——追加制）', () => {
     const tabs = [unpinned('a'), pinned('b')]
     upsertTab(tabs, mk('c'), 'a')
-    expect(tabs.map((t) => t.entry.key)).toEqual(['c', 'b'])
-    expect(tabs[0]!.pinned).toBe(false)
+    expect(tabs.map((t) => t.entry.key)).toEqual(['a', 'b', 'c'])
   })
 
-  it('激活 tab 已钉住 → 追加（钉住内容不被替换）', () => {
+  it('激活 tab 已钉住 → 同样追加', () => {
     const tabs = [pinned('a'), unpinned('b')]
     upsertTab(tabs, mk('c'), 'a')
     expect(tabs.map((t) => t.entry.key)).toEqual(['a', 'b', 'c'])
@@ -108,11 +107,40 @@ describe('upsertTab（预览态语义）', () => {
     expect(tabs[0]!.appId).toBe('app2')
   })
 
-  it('替换路径长度不变 → 不触发 LRU 淘汰', () => {
+  it('同 key 复开不触 LRU（已有路径长度不变）', () => {
     const tabs = [unpinned('a'), ...Array.from({ length: 7 }, (_, i) => pinned(`p${i}`))]
-    upsertTab(tabs, mk('n'), 'a')
+    upsertTab(tabs, mk('a'), 'a')
     expect(tabs).toHaveLength(8)
+    expect(tabs[0]!.entry.key).toBe('a')
+  })
+})
+
+// ───────────────────────── 纯状态：applyOpenedTab（features.multiTab 门控） ─────────────────────────
+
+describe('applyOpenedTab（multiTab 门控）', () => {
+  it('multiTab=true（缺省）→ 与 upsertTab 同语义（恒追加）', () => {
+    const tabs = [unpinned('a'), pinned('p')]
+    applyOpenedTab(tabs, mk('n'), 'a')
+    expect(tabs.map((t) => t.entry.key)).toEqual(['a', 'p', 'n'])
+    applyOpenedTab(tabs, mk('m'), 'n', undefined, true)
+    expect(tabs.map((t) => t.entry.key)).toEqual(['a', 'p', 'n', 'm'])
+  })
+
+  it('multiTab=false → 整表替换为单个未钉住 tab（无视钉住/激活/LRU）', () => {
+    const tabs = [pinned('a'), unpinned('b'), unpinned('c')]
+    applyOpenedTab(tabs, mk('n'), 'b', 'app1', false)
+    expect(tabs).toHaveLength(1)
     expect(tabs[0]!.entry.key).toBe('n')
+    expect(tabs[0]!.pinned).toBe(false)
+    expect(tabs[0]!.appId).toBe('app1')
+  })
+
+  it('multiTab=false 同 key 复开 → 仍单 tab（entry 刷新）', () => {
+    const tabs: PreviewTab[] = []
+    applyOpenedTab(tabs, mk('a'), null, undefined, false)
+    applyOpenedTab(tabs, mk('a', 'a2'), null, undefined, false)
+    expect(tabs).toHaveLength(1)
+    expect(tabs[0]!.entry.name).toBe('a2')
   })
 })
 
@@ -150,14 +178,25 @@ describe('LRU 上限 8（淘汰语义）', () => {
 // ───────────────────────── 纯状态：pinToggle / pickNeighbor ─────────────────────────
 
 describe('pinToggle / pickNeighbor', () => {
-  it('pinToggle：双击语义切换钉住；key 不存在=无操作', () => {
+  it('pinToggle：双击语义切换钉住（成功/取消钉=true）；key 不存在=false', () => {
     const tabs = [unpinned('a')]
-    pinToggle(tabs, 'a')
+    expect(pinToggle(tabs, 'a')).toBe(true)
     expect(tabs[0]!.pinned).toBe(true)
-    pinToggle(tabs, 'a')
+    expect(pinToggle(tabs, 'a')).toBe(true) // 取消钉不受上限约束
     expect(tabs[0]!.pinned).toBe(false)
-    expect(() => pinToggle(tabs, 'ghost')).not.toThrow()
+    expect(pinToggle(tabs, 'ghost')).toBe(false)
     expect(tabs).toHaveLength(1)
+  })
+
+  it('pinToggle：钉满 PREVIEW_PIN_LIMIT=5 → 第 6 个钉被拒（false、状态零变更）', () => {
+    const tabs = [unpinned('free'), ...Array.from({ length: 4 }, (_, i) => pinned(`p${i}`))]
+    expect(pinToggle(tabs, 'free')).toBe(true) // 第 5 个钉 → 恰好达上限
+    expect(tabs[0]!.pinned).toBe(true)
+    const full = Array.from({ length: 5 }, (_, i) => pinned(`p${i}`)).concat(unpinned('x'))
+    expect(pinToggle(full, 'x')).toBe(false) // 已满 5 → 拒绝
+    expect(full.map((t) => t.pinned)).toEqual([true, true, true, true, true, false])
+    expect(pinToggle(full, 'p2')).toBe(true) // 已钉者取消不受限
+    expect(full[2]!.pinned).toBe(false)
   })
 
   it('pickNeighbor：右邻优先；末位取左邻；唯一 tab=null；缺 key=null', () => {

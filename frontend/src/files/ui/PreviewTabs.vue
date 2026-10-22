@@ -1,20 +1,23 @@
 <script lang="ts">
 /**
- * PreviewTabs — 预览 Tab 条（Lane H1：预览态/钉住/LRU，OpenVSCode 预览态模型的纯 UI 层）。
+ * PreviewTabs — 预览 Tab 条（Lane H1：追加制多开 + 钉住防淘汰 + LRU，纯 UI 层）。
  * 单内容区 + tab 历史：内容区仍是 preview 单实例（不搞多渲染器并存——渲染器重，且 savedState
  * 已按 key 记忆，切回=preview.open 重跑+savedState 回注）。tab 仅是打开历史条目
  * { entry, pinned, appId }。状态（tabs 数组 + activeKey）由 Home 持有（ref），本组件纯受控：
  * props 进 / emits 出，纯状态函数导出供 Home 与单测共用（同一份语义正本）。
- * 语义口径：
+ * 语义口径（追加制，2026-10 产品定版）：
  *  - 单击 tab=激活（Home → preview.open(entry, {appId?})，savedState 回注）
- *  - 双击 tab=钉住/取消钉（VS Code 预览态斜体 tab：钉住转正体+图钉）
+ *  - 双击 tab=钉住/取消钉（钉住防 LRU 淘汰；上限 PREVIEW_PIN_LIMIT=5，钉满后钉操作被拒）
  *  - 关闭钮=关该 tab（激活中的被关 → Home 清预览并激活相邻 tab，右邻优先）
- *  - 打开新文件：激活 tab 未钉住 → 原位替换（预览态）；已钉住 → 追加；LRU 上限 8
+ *  - 打开新文件=恒追加新 tab（同 key 复开除外=原位保留）；LRU 上限 8，超限淘汰最旧未钉住
  */
 import type { S3ObjectSummary } from '@/sdk/types'
 
-/** LRU 上限（Lane H1 口径）：超限淘汰最旧未钉住；全钉住则淘汰最旧未激活者（容量守恒优先于钉住保护） */
+/** LRU 上限（Lane H1 口径）：超限淘汰最旧未钉住；全钉住则淘汰最旧未激活者（防御分支，pin 上限下不可达） */
 export const PREVIEW_TAB_LIMIT = 8
+
+/** 钉住上限：防淘汰保护不无限扩张（钉满后 pinToggle 拒绝并返回 false，Home 出提示） */
+export const PREVIEW_PIN_LIMIT = 5
 
 export interface PreviewTab {
   entry: S3ObjectSummary
@@ -45,10 +48,9 @@ export function evictOverflow(tabs: PreviewTab[], activeKey: string | null, prot
 }
 
 /**
- * 打开链的 tab 归位（原位变更，配合 Home 的 reactive ref）：
+ * 打开链的 tab 归位（原位变更，配合 Home 的 reactive ref）——追加制：
  *  - 已存在同 key tab：保持位置与钉住状态（entry/appId 刷新），不触 LRU；
- *  - 新 key：激活 tab 未钉住 → 原位替换（VS Code 预览态行为，替换者恒未钉住）；
- *    已钉住/无激活 → 追加；随后按 LRU 超限淘汰。
+ *  - 新 key：恒追加新 tab；随后按 LRU 超限淘汰（最旧未钉住先出）。
  * activeKey 取「本次打开前」的激活 tab（Home 在 onOpened 回调中先归位 tab、后改 activeKey）。
  */
 export function upsertTab(
@@ -63,20 +65,40 @@ export function upsertTab(
     if (appId !== undefined) existing.appId = appId
     return
   }
-  const tab: PreviewTab = { entry, pinned: false, appId }
-  const activeIdx = activeKey === null ? -1 : tabs.findIndex((t) => t.entry.key === activeKey)
-  if (activeIdx >= 0 && !tabs[activeIdx]!.pinned) {
-    tabs.splice(activeIdx, 1, tab) // 预览态：原位替换
-  } else {
-    tabs.push(tab)
-  }
+  tabs.push({ entry, pinned: false, appId })
   evictOverflow(tabs, activeKey, entry.key)
 }
 
-/** 钉住/取消钉（双击；key 不存在=无操作） */
-export function pinToggle(tabs: PreviewTab[], key: string): void {
+/**
+ * features.multiTab 门控的打开链归位（Home 唯一入口）：
+ *  - multiTab=true（缺省）→ upsertTab 现行为（追加制 + 钉住防淘汰 + LRU 8）；
+ *  - multiTab=false → 单文件预览：无视钉住/激活，整表替换为单个未钉住 tab
+ *    （保留 tab 片作关闭出口；pinToggle 对其无害——下次打开整表替换，钉住态不存续）。
+ */
+export function applyOpenedTab(
+  tabs: PreviewTab[],
+  entry: S3ObjectSummary,
+  activeKey: string | null,
+  appId?: string,
+  multiTab = true,
+): void {
+  if (multiTab) {
+    upsertTab(tabs, entry, activeKey, appId)
+    return
+  }
+  tabs.splice(0, tabs.length, { entry, pinned: false, appId })
+}
+
+/**
+ * 钉住/取消钉（双击；key 不存在=无操作返回 false）。钉住方向受 PREVIEW_PIN_LIMIT 约束：
+ * 已有 5 个钉住时再钉 → 拒绝（返回 false，状态零变更；Home 出提示）；取消钉不受限。
+ */
+export function pinToggle(tabs: PreviewTab[], key: string): boolean {
   const tab = findTab(tabs, key)
-  if (tab) tab.pinned = !tab.pinned
+  if (!tab) return false
+  if (!tab.pinned && tabs.filter((t) => t.pinned).length >= PREVIEW_PIN_LIMIT) return false
+  tab.pinned = !tab.pinned
+  return true
 }
 
 /** 关 tab 后的相邻激活选择：右邻优先，无右邻取左邻（VS Code 关闭后激活方向），唯一/缺 key=null */
@@ -130,12 +152,14 @@ const emit = defineEmits<{
 </template>
 
 <style lang="scss" scoped>
-/* VS Code 式细 tab 条：激活态高亮、未钉住斜体、钉住图钉、hover 出关闭钮 */
+/* FcTabsPanel 同款视觉（sdk navigation/FcTabsPanel .fc-tabs/.fc-tab 口径，2026-10 改版）：
+   pill 式 tab——激活 primary 12% 底、hover bg-muted、未钉住未激活斜体、钉住图钉、hover 出关闭钮 */
 .ptabs {
   display: flex;
-  align-items: stretch;
-  gap: 2px;
-  margin: 0 0 8px;
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
+  padding: 4px;
   overflow-x: auto;
 }
 
@@ -144,29 +168,30 @@ const emit = defineEmits<{
   align-items: center;
   gap: 6px;
   max-width: 180px;
-  padding: 4px 8px;
-  font-size: 12px;
-  line-height: 18px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--app-text-secondary);
   cursor: pointer;
   user-select: none;
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--app-radius-sm, 6px);
+  border: none;
+  border-radius: var(--app-radius-button, 6px);
+  transition: background 0.15s, color 0.15s;
+
+  /* hover 先于 .is-active 声明——同特异性下激活态覆盖 hover */
+  &:hover {
+    color: var(--app-text-primary);
+    background: var(--app-bg-muted);
+  }
 
   &.is-active {
-    color: var(--app-text-primary);
-    background: var(--app-section-bg);
-    border-color: var(--app-section-border-color);
+    color: var(--app-primary);
+    background: color-mix(in srgb, var(--app-primary) 12%, transparent);
   }
 
-  &:hover:not(.is-active) {
-    color: var(--app-text-primary);
-    background: var(--app-section-bg);
-  }
-
-  /* 预览态（未钉住）斜体，钉住转正体 */
-  &:not(.is-pinned) .ptabs__name {
+  /* 预览态（未钉住）斜体，钉住转正体；激活 tab 不再以斜体标记预览态 */
+  &:not(.is-pinned):not(.is-active) .ptabs__name {
     font-style: italic;
   }
 }

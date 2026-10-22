@@ -175,10 +175,11 @@ describe('xlsxRenderer savedState 恢复', () => {
 })
 
 describe('xlsxRenderer 空工作簿与失败面', () => {
-  it('空工作簿（SheetNames=[]）：提示节点、无标签无表格、无 getState；dispose 清空', async () => {
+  it('空工作簿（SheetNames=[]）：提示节点、无标签无表格、无 getState；dispose 清空（走 xls 路径触发 SheetJS mock）', async () => {
     xlsxHolder.emptyBook = true
     const el = document.createElement('div')
-    const ret = await xlsxRenderer(el, FILE, makeCtx(async () => xlsxBlob(SHEETS)))
+    const xlsFile = { key: 'docs/a.xls', name: 'a.xls', size: 9000 }
+    const ret = await xlsxRenderer(el, xlsFile, makeCtx(async () => xlsxBlob(SHEETS)))
     const inst = ret as AppInstance
 
     expect(el.childElementCount).toBe(1)
@@ -239,5 +240,98 @@ describe('xlsxRenderer 安全与 dispose', () => {
     expect(() => tab.click()).not.toThrow()
     expect(el.querySelector('table')).toBeNull()
     expect(() => inst.dispose()).not.toThrow()
+  })
+})
+
+// ───────────────────────── ExcelJS 样式渲染（.xlsx 路径，B 方案） ─────────────────────────
+
+describe('xlsxRenderer ExcelJS 样式渲染（xlsx 路径）', () => {
+  /** 真 ExcelJS 造带样式工作簿 → Blob（fill/font/border/merge/列宽/行高全往返） */
+  async function styledBlob(): Promise<Blob> {
+    const ExcelJS = await import('exceljs')
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('S1')
+    ws.getColumn(1).width = 12
+    ws.getColumn(2).width = 8
+    const head = ws.getCell('A1')
+    head.value = '头部'
+    head.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFC000' } }
+    head.font = { bold: true, color: { rgb: 'FF0000' }, size: 14 }
+    head.border = { top: { style: 'medium', color: { argb: 'FF000000' } }, bottom: { style: 'thin' } }
+    head.alignment = { horizontal: 'center' }
+    ws.getRow(1).height = 20
+    ws.mergeCells('A2:B2')
+    ws.getCell('A2').value = '合并区'
+    ws.getCell('B1').value = 3.14
+    const buf = await wb.xlsx.writeBuffer()
+    return new Blob([buf])
+  }
+
+  it('样式还原：底色/字色粗体/字号/边框/对齐/合并跨度/列宽/行高', async () => {
+    const el = document.createElement('div')
+    await render(el, await styledBlob())
+
+    const table = el.querySelector('.xlsx-sheet table.xlsx-table')
+    expect(table).not.toBeNull()
+    const rows = table!.querySelectorAll('tr')
+    expect(rows).toHaveLength(2)
+
+    // A1 头部：底色 + 粗体 + 居中 + 边框 + 字号（字色断言略：ExcelJS writer 往返丢 font.color
+    // ——openpyxl/Excel 真实文件读回完好，字色链路由 E2E 用 openpyxl 产物验证）
+    const head = rows[0]!.cells[0] as HTMLTableCellElement
+    expect(head.textContent).toBe('头部')
+    expect(head.style.backgroundColor).toBe('rgb(255, 192, 0)')
+    expect(head.style.fontWeight).toBe('600')
+    expect(head.style.textAlign).toBe('center')
+    expect(head.style.borderTopWidth).toBe('2px') // medium
+    expect(head.style.fontSize).toBe('14px')
+
+    // 行高（20pt → 27px）
+    expect(rows[0]!.style.height).toBe('27px')
+
+    // A2:B2 合并：起点 colspan=2，第二行只此一个 td（从格不生成）
+    expect(rows[1]!.cells.length).toBe(1)
+    expect((rows[1]!.cells[0] as HTMLTableCellElement).colSpan).toBe(2)
+    expect(rows[1]!.cells[0]!.textContent).toBe('合并区')
+
+    // 列宽（12 字符 → 89px）
+    const col = table!.querySelectorAll('colgroup col')
+    expect(col[0]!.style.width).toBe('89px')
+  })
+
+  it('大表截断：超过 2000 行渲染前 2000 行 + 截断提示行', async () => {
+    const ExcelJS = await import('exceljs')
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('Big')
+    for (let i = 1; i <= 2001; i++) ws.getCell(i, 1).value = i
+    const blob = new Blob([await wb.xlsx.writeBuffer()])
+
+    const el = document.createElement('div')
+    await render(el, blob)
+    const rows = el.querySelectorAll('.xlsx-sheet table tr')
+    expect(rows).toHaveLength(2001) // 2000 数据行 + 1 提示行
+    const tip = rows[2000]!.querySelector('.xlsx-truncated')
+    expect(tip).not.toBeNull()
+    expect(tip!.textContent).toBe('T:app.xlsx-truncated')
+  })
+})
+
+describe('xlsxRenderer xls 旧链（SheetJS 降级路径）', () => {
+  it('真 .xls（BIFF8）字节：表格渲染 + sheet 标签 + 纯数据网格（无样式面）', async () => {
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['x1', 'y1']]), 'L1')
+    const out = XLSX.write(wb, { bookType: 'xls', type: 'array' }) as ArrayBuffer
+
+    const el = document.createElement('div')
+    const xlsFile = { key: 'docs/a.xls', name: 'a.xls', size: out.byteLength }
+    const ctx = makeCtx(async () => new Blob([out]))
+    const inst = (await xlsxRenderer(el, xlsFile, ctx)) as SheetInstance
+
+    expect(el.querySelector('.xlsx-tabs button')).not.toBeNull()
+    const table = el.querySelector('.xlsx-sheet table.xlsx-table')
+    expect(table).not.toBeNull()
+    expect(table!.querySelector('tr td')?.textContent).toBe('x1')
+    expect(inst.getState()).toEqual({ sheet: 0 })
+    inst.dispose()
   })
 })

@@ -14,6 +14,7 @@ export default defineConfig({
     globals: true,
     // SDK 自测环境:注册空 i18n / pinia / Element Plus / matchMedia(见该文件)
     setupFiles: ['src/components/sdk/__tests__/setup.ts'],
-    exclude: ['e2e/**', 'node_modules/**'],
+    // **/ 前缀盖住 plugins/*/node_modules（根级 node_modules/** 匹配不到嵌套路径，vendored spec 会混进全量）
+    exclude: ['e2e/**', '**/node_modules/**'],
   },
 })

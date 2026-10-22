@@ -134,4 +134,23 @@ test.describe('业务线3：渲染器预览', () => {
     await shot(page, 'render-07-render-error-boundary-pass.png')
     console.log('[render-07] console 证据：\n' + consoleEvidence(cap))
   })
+
+  test('render-08：快速连开预览（600ms 节奏 takeOver 接管 Monaco）→ 0 pageerror（DEF-1 回归门）', async ({ page }) => {
+    const cap = attachConsole(page)
+    await openWorkspace(page)
+    // DEF-1（test-report/2026-10-18-01）触发链：markdown → Monaco → video takeOver 接管，
+    // 600ms/步——前序编辑器事件尚在 Monaco emitter 队列投递中即同步 teardown。
+    // 现行用例间隔全部 ≥800ms 踩不进窗口，故专设快速节奏用例锁 0 pageerror。
+    await openRow(page, 'README.md')
+    await page.waitForTimeout(600)
+    await openRow(page, 'notes.txt')
+    await page.waitForTimeout(600)
+    await openRow(page, 'demo.mp4')
+    await page.waitForTimeout(1500)
+    // 工作台不崩：video 预览在位、树仍可交互
+    await expect(page.locator('.ws__preview-host video').first()).toBeAttached()
+    expect(cap.pageErrors, 'DEF-1：Monaco dispose 竞态必须保持 0 pageerror').toEqual([])
+    await shot(page, 'render-08-rapid-open-no-pageerror-pass.png')
+    console.log('[render-08] console 证据：\n' + consoleEvidence(cap))
+  })
 })

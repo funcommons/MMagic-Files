@@ -48,6 +48,8 @@ test.describe('业务线4：工具栏操作', () => {
     const frame = floc(page)
 
     await frame.locator('[data-testid="row"]', { hasText: 'README.md' }).click()
+    // 2026-10 布局：选中簇仅在已开 tab 时显示——先打开文件
+    await frame.locator('[data-testid="row"]', { hasText: 'README.md' }).first().dblclick()
     await toolbarButton(frame, '删除').click()
     // 确认弹窗含文件名
     const box = frame.locator('.el-message-box')
@@ -67,6 +69,7 @@ test.describe('业务线4：工具栏操作', () => {
     const frame = floc(page)
 
     await frame.locator('[data-testid="row"]', { hasText: 'notes.txt' }).click()
+    await frame.locator('[data-testid="row"]', { hasText: 'notes.txt' }).first().dblclick() // 选中簇仅在已开 tab 时显示
     await toolbarButton(frame, '重命名').click()
     await confirmMessageBox(frame, 'renamed.txt')
     expect(state.copyRequests).toContainEqual({ from: `${MOCK_PREFIX}notes.txt`, to: `${MOCK_PREFIX}renamed.txt` })

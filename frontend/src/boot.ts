@@ -23,7 +23,7 @@ import { AppRegistry } from './apps/registry'
 import { ERROR_CODES, SdkError } from './sdk/errorCodes'
 import { PROTOCOL_VERSION, TTL_HARD_CAP_SEC } from './sdk/constants'
 import type { AppConfig, CommandName, SetLocalePayload, SetThemePayload } from './sdk/types'
-import type { CommandHandler } from './sdk/handlers'
+import type { CommandHandler, SessionHandle } from './sdk/handlers'
 import type { InjectionKey } from 'vue'
 
 /** Vue 注入键：main.ts provide、UI 层 inject（值=BootResult） */
@@ -41,11 +41,16 @@ export interface BootOptions {
    * M1+ 接缝：config 就绪后构造命令 overrides（如 createM1Overrides）。
    * 回调形态的原因：overrides 的依赖（client/tree/queue）需要 config，而 config 在 bootApp 内部解析。
    */
-  overrides?: (config: AppConfig) => Partial<Record<CommandName, CommandHandler>> | undefined
+  overrides?: (config: AppConfig, session: SessionHandle) => Partial<Record<CommandName, CommandHandler>> | undefined
   /** M3 接缝：registry 创建后构造插件加载器等；可返回 ensureApps（lazy 插件「首命中触发」由打开链调用） */
   setupPlugins?: (registry: AppRegistry, config: AppConfig) => void | {
-    ensureApps?: (entry: { name: string; mime?: string; size?: number }) => Promise<void>
+    ensureApps?: (entry: { name: string; mime?: string; size?: number }, opts?: EnsureAppsOpts) => Promise<void>
   }
+}
+
+/** ensureApps 选项：force=跳过「默认应用已命中」短路，强制补载配置插件（指定插件应用 appId 未命中时用） */
+export interface EnsureAppsOpts {
+  force?: boolean
 }
 
 export interface BootHandle {
@@ -57,7 +62,7 @@ export interface BootHandle {
   /** 页面卸载/测试清理：停表 + 总线销毁（不发 expired） */
   dispose(): void
   /** M3：lazy 插件加载触发（preview 未命中时先加载配置插件再重解析） */
-  ensureApps?(entry: { name: string; mime?: string; size?: number }): Promise<void>
+  ensureApps?(entry: { name: string; mime?: string; size?: number }, opts?: EnsureAppsOpts): Promise<void>
 }
 
 export type BootResult =
@@ -214,7 +219,11 @@ export function bootApp(options: BootOptions = {}): BootResult {
       localeState.value = l
       options.onLocaleChange?.(l)
     },
-    overrides: options.overrides?.(config),
+    getApps: (entry) =>
+      registry
+        .listMatches(entry)
+        .map((d) => ({ id: d.id, label: d.label ?? d.id, actions: d.actions ?? [] })),
+    overrides: options.overrides?.(config, session),
   })
   for (const name of Object.keys(table) as CommandName[]) {
     bus.on(name, wrapCommand(table[name]))

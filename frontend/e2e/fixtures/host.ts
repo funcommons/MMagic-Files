@@ -122,8 +122,8 @@ export async function openRow(page: Page, name: string): Promise<void> {
   await page.locator(`[data-testid="row"]`, { hasText: name }).first().dblclick()
 }
 
-/** 进入目录（点目录名按钮，触发 loadDir） */
-export async function enterDir(page: Page, name: string): Promise<void> {
+/** 展开树（2026-10）：点击目录名 = 选中 + 原位展开（替代旧「进入目录」范式） */
+export async function expandDir(page: Page, name: string): Promise<void> {
   await page.locator(`[data-testid="dir-name"]`, { hasText: name }).first().click()
 }
 
@@ -140,5 +140,19 @@ export async function confirmMessageBox(root: Page | FrameLocator, inputValue?: 
 
 /** 工具栏按钮（按文案；root 可为 Page 或 FrameLocator） */
 export function toolbarButton(root: Page | FrameLocator, text: string) {
+  // 2026-10 布局改版：创建簇在树头（tree-* testid）；选中簇在预览区头右侧（toolbar-* testid，
+  // 紧凑图标钮无文本，hasText 失效——一律 testid 直取）。
+  const byTestid: Record<string, string> = {
+    上传: 'tree-upload',
+    新建目录: 'tree-mkdir',
+    刷新: 'tree-refresh',
+    搜索文件: 'tree-search',
+    分享: 'toolbar-share',
+    下载: 'toolbar-download',
+    重命名: 'toolbar-rename',
+    删除: 'toolbar-delete',
+  }
+  const tid = byTestid[text]
+  if (tid) return root.locator(`[data-testid="${tid}"]`)
   return root.locator('.ws-toolbar button', { hasText: text }).first()
 }

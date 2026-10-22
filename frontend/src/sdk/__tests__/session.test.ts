@@ -1,6 +1,6 @@
 /**
  * SessionController 单测（契约《方案设计.md》§4.2 /《JSSDK 接口文档.md》§三）
- * 覆盖：TTL 到点自毁 / T-5min 预警恰一次 / expiresAt 优先 / destroy 终态 / stop 重入 / DI 计时器
+ * 覆盖：TTL 到点自毁 / T-5min 预警恰一次 / expiresAt 优先 / destroy 终态 / stop 重入 / DI 计时器 / extend 续期重布（v1.1）
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EXPIRE_WARN_BEFORE_MS } from '../constants'
@@ -167,5 +167,110 @@ describe('SessionController', () => {
     expect(onExpire).toHaveBeenCalledWith('ttl')
     expect(c.remainingMs()).toBe(0)
     expect(c.isExpired()).toBe(true)
+  })
+})
+
+describe('SessionController.extend（v1.1 setCredentials 续期重布）', () => {
+  // 沿用文件内既有 timers stub（显式 toFake Date：expiresAt 用例依赖 Date.now 可控）
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('更新 ttlSeconds 死线源：remainingMs 增长，旧到期定时器已拆（原死线点不发火）', () => {
+    const onExpire = vi.fn()
+    const c = new SessionController({ ttlSeconds: 60, onExpire })
+    c.start()
+    vi.advanceTimersByTime(50_000)
+    expect(c.remainingMs()).toBe(10_000)
+    c.extend({ ttlSeconds: 300 })
+    expect(c.remainingMs()).toBe(300_000) // 新死线 = extend 时刻 + 新 TTL
+    vi.advanceTimersByTime(60_000) // 越过原死线点：旧定时器已被 start() 的 unarm 拆除
+    expect(onExpire).not.toHaveBeenCalled()
+    expect(c.isExpired()).toBe(false)
+  })
+
+  it('extend 后到期定时器按新死线触发 onExpire("ttl") 恰一次', () => {
+    const onExpire = vi.fn()
+    const c = new SessionController({ ttlSeconds: 60, onExpire })
+    c.start()
+    c.extend({ ttlSeconds: 120 })
+    vi.advanceTimersByTime(119_999)
+    expect(onExpire).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(onExpire).toHaveBeenCalledTimes(1)
+    expect(onExpire).toHaveBeenCalledWith('ttl')
+  })
+
+  it('预警一次性标记复位：extend 后 warnedOnce=false，按新死线再次预警', () => {
+    const onWarn = vi.fn()
+    const onExpire = vi.fn()
+    const c = new SessionController({ ttlSeconds: 600, onWarn, onExpire })
+    c.start()
+    vi.advanceTimersByTime(600_000 - WARN_MS) // 恰到 T-5min：第一轮预警
+    expect(onWarn).toHaveBeenCalledTimes(1)
+    expect(c.warnedOnce).toBe(true)
+    c.extend({ ttlSeconds: 600 }) // 重布：预警标记复位，新死线重走一轮
+    expect(c.warnedOnce).toBe(false)
+    expect(onWarn).toHaveBeenCalledTimes(1)
+    vi.advanceTimersByTime(600_000 - WARN_MS)
+    expect(onWarn).toHaveBeenCalledTimes(2) // 第二轮预警照常恰一次
+    expect(c.warnedOnce).toBe(true)
+  })
+
+  it('已终态：extend no-op（不复活、不布新定时器）', () => {
+    const onExpire = vi.fn()
+    const c = new SessionController({ ttlSeconds: 10, onExpire })
+    c.start()
+    vi.advanceTimersByTime(10_000)
+    c.extend({ ttlSeconds: 600 })
+    expect(c.isExpired()).toBe(true)
+    expect(c.remainingMs()).toBe(0)
+    vi.advanceTimersByTime(700_000)
+    expect(onExpire).toHaveBeenCalledTimes(1) // 终态恰好一次，不因 extend 复活
+  })
+
+  it('双缺省 extend({})：expiresAt 死线保持原值，仅重布定时器', () => {
+    vi.setSystemTime(1_000_000)
+    const onExpire = vi.fn()
+    const c = new SessionController({ expiresAt: 1_020_000, onExpire })
+    c.start()
+    expect(c.remainingMs()).toBe(20_000)
+    vi.advanceTimersByTime(10_000)
+    expect(c.remainingMs()).toBe(10_000)
+    c.extend({})
+    expect(c.remainingMs()).toBe(10_000) // 死线源未更新 → 死线原值不动
+    vi.advanceTimersByTime(9_999)
+    expect(onExpire).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(onExpire).toHaveBeenCalledTimes(1)
+    expect(onExpire).toHaveBeenCalledWith('ttl')
+  })
+
+  it('双缺省 extend({}) 且死线源为 ttlSeconds：从当前时刻按原 TTL 重算（重布语义，窗口重启）', () => {
+    const onExpire = vi.fn()
+    const c = new SessionController({ ttlSeconds: 60, onExpire })
+    c.start()
+    vi.advanceTimersByTime(50_000)
+    c.extend({}) // ttlSeconds 派生死线 = 重算 now+60s，而非钉住旧绝对死线
+    expect(c.remainingMs()).toBe(60_000)
+    vi.advanceTimersByTime(59_999)
+    expect(onExpire).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(onExpire).toHaveBeenCalledWith('ttl')
+  })
+
+  it('extend 到已过去的 expiresAt（负剩余）：立即 end("ttl")（起表即过期）', () => {
+    const onExpire = vi.fn()
+    const c = new SessionController({ ttlSeconds: 60, onExpire })
+    c.start()
+    vi.advanceTimersByTime(10_000)
+    c.extend({ expiresAt: Date.now() - 1 })
+    expect(onExpire).toHaveBeenCalledTimes(1)
+    expect(onExpire).toHaveBeenCalledWith('ttl')
+    expect(c.isExpired()).toBe(true)
+    expect(c.remainingMs()).toBe(0)
   })
 })

@@ -13,7 +13,8 @@ import { heicViewerRenderer } from './heic'
 import { codeEditorRenderer } from './code'
 import { docxRenderer } from './docx'
 import { xlsxRenderer } from './xlsx'
-import { imagePainterRenderer } from './painter'
+import { mermaidViewerRenderer } from './mermaid'
+import { flowEditorRenderer } from './flow-editor'
 
 export const RENDERERS: Partial<Record<string, AppDefinition['renderer']>> = {
   'markdown-renderer': markdownRenderer,
@@ -25,6 +26,7 @@ export const RENDERERS: Partial<Record<string, AppDefinition['renderer']>> = {
   'csv-table': csvTableRenderer,
   'docx-viewer': docxRenderer,
   'xlsx-viewer': xlsxRenderer,
-  'image-painter': imagePainterRenderer,
   'heic-viewer': heicViewerRenderer, // Lane F6
+  'flow-editor': flowEditorRenderer,
+  'mermaid-viewer': mermaidViewerRenderer,
 }

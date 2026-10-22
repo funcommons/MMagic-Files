@@ -93,6 +93,8 @@ test.describe('业务线11：工作台交互面（Lane F5）', () => {
     const state = await openWorkspace(page)
 
     await page.locator('[data-testid="row"]', { hasText: 'README.md' }).click()
+    // 2026-10 布局：选中簇仅在已开 tab 时显示——先打开文件再批量选
+    await openRow(page, 'README.md')
     await page.locator('[data-testid="row"]', { hasText: 'notes.txt' }).click({ modifiers: [MULTI_MODIFIER] })
 
     // 多选（均非目录）→「下载」启用（批量打包语义）；重命名按首项可用
@@ -163,7 +165,7 @@ test.describe('业务线11：工作台交互面（Lane F5）', () => {
 
   // Lane H1 预览 Tab 条（OpenVSCode 预览态模型）：连开两文件 → 激活 tab 未钉住被原位替换（预览态）→
   // 双击钉住 → 再开新文件 → 两 tab 并存 → 点回被钉 tab 内容恢复（preview.open 重跑 + savedState 回注）。
-  test('wb-06：预览 tab 条——预览态替换 / 双击钉住 / 并存 / 切回恢复（Lane H1）', async ({ page }) => {
+  test('wb-06：预览 tab 条——追加制多开 / 双击钉住 / 切回恢复（Lane H1，2026-10 追加制定版）', async ({ page }) => {
     const cap = attachConsole(page)
     await openWorkspace(page)
 
@@ -175,20 +177,20 @@ test.describe('业务线11：工作台交互面（Lane F5）', () => {
     const readmeTab = tabs.locator('[data-testid="preview-tab"]', { hasText: 'README.md' })
     await expect(readmeTab).toHaveClass(/is-active/)
 
-    // 再开 data.csv：激活 tab（README，未钉住）→ 原位替换（预览态），仍只有 1 个 tab
+    // 再开 data.csv：追加制 → 恒追加（两 tab 并存），csv 激活且表格渲染
     await openRow(page, 'data.csv')
     await expect(page.locator('.mmagic-csv-table')).toBeVisible({ timeout: 30_000 })
-    await expect(tabs.locator('[data-testid="preview-tab"]')).toHaveCount(1)
-    await expect(tabs.locator('[data-testid="preview-tab"]', { hasText: 'data.csv' })).toHaveCount(1)
-
-    // 双击 csv tab → 钉住（图钉出现，斜体转正体）
+    await expect(tabs.locator('[data-testid="preview-tab"]')).toHaveCount(2)
     const csvTab = tabs.locator('[data-testid="preview-tab"]', { hasText: 'data.csv' })
+    await expect(csvTab).toHaveClass(/is-active/)
+
+    // 双击 csv tab → 钉住（图钉出现，防 LRU 淘汰）
     await csvTab.dblclick()
     await expect(csvTab.locator('[data-testid="preview-tab-pin"]')).toBeVisible()
 
-    // 再开 notes.txt：csv 已钉住 → 追加（两 tab 并存），notes 激活
+    // 再开 notes.txt：恒追加（三 tab 并存），notes 激活
     await openRow(page, 'notes.txt')
-    await expect(tabs.locator('[data-testid="preview-tab"]')).toHaveCount(2)
+    await expect(tabs.locator('[data-testid="preview-tab"]')).toHaveCount(3)
     const notesTab = tabs.locator('[data-testid="preview-tab"]', { hasText: 'notes.txt' })
     await expect(notesTab).toHaveClass(/is-active/)
 
@@ -208,6 +210,7 @@ test.describe('业务线11：工作台交互面（Lane F5）', () => {
     await openWorkspace(page)
 
     await page.locator('[data-testid="row"]', { hasText: 'README.md' }).click()
+    await openRow(page, 'README.md') // 选中簇仅在已开 tab 时显示
     await toolbarButton(page, '分享').click()
     const dialog = page.locator('[data-testid="share-dialog"]')
     await expect(dialog).toBeVisible()
